@@ -75,6 +75,8 @@
 #include <QTreeWidgetItem>
 #include <QSplitter>
 #include <QFileSystemWatcher>
+#include <QHash>
+#include <QTimer>
 
 // tcg includes
 #include "tcg/boost/range_utility.h"
@@ -86,6 +88,23 @@
 #include <boost/range/adaptor/transformed.hpp>
 
 namespace ba = boost::adaptors;
+
+namespace {
+
+QPixmap sceneBrowserSvgIcon(const QString &resourcePath, const QSize &size) {
+  static QHash<QString, QPixmap> cache;
+  const QString key = resourcePath + QLatin1Char('@') +
+                      QString::number(size.width()) + QLatin1Char('x') +
+                      QString::number(size.height());
+  const auto it = cache.constFind(key);
+  if (it != cache.cend()) return it.value();
+  QPixmap pm =
+      svgToPixmap(resourcePath, size, Qt::KeepAspectRatio, Qt::transparent);
+  cache.insert(key, pm);
+  return pm;
+}
+
+}  // namespace
 
 using namespace DVGui;
 
@@ -804,31 +823,41 @@ QVariant SceneBrowser::getItemData(int index, DataType dataType,
     else
       return item.m_name;
   } else if (dataType == Thumbnail) {
-    QSize iconSize = m_itemViewer->getPanel()->getIconSize();
-    // parent folder icons
+    DvItemViewerPanel *panel = m_itemViewer->getPanel();
+    QSize iconSize           = panel->getIconSize();
+    QSize renderSize         = panel->getRenderIconSize();
+    // Re-render SVG at the live size (static cache was the pixelation source).
     if (item.m_path == m_folder.getParentDir()) {
-      static QPixmap folderUpPixmap(svgToPixmap(":Resources/folderup_icon.svg",
-                                                iconSize, Qt::KeepAspectRatio));
-      return folderUpPixmap;
-    }
-    // folder icons
-    else if (item.m_isFolder) {
-      if (item.m_isLink) {
-        static QPixmap linkIcon(svgToPixmap(":Resources/link_icon.svg",
-                                            iconSize, Qt::KeepAspectRatio));
-        return linkIcon;
-      } else {
-        static QPixmap folderIcon(svgToPixmap(":Resources/folder_icon.svg",
-                                              iconSize, Qt::KeepAspectRatio));
-        return folderIcon;
-      }
+      return sceneBrowserSvgIcon(QStringLiteral(":Resources/folderup_icon.svg"),
+                                 iconSize);
+    } else if (item.m_isFolder) {
+      if (item.m_isLink)
+        return sceneBrowserSvgIcon(QStringLiteral(":Resources/link_icon.svg"),
+                                   iconSize);
+      return sceneBrowserSvgIcon(QStringLiteral(":Resources/folder_icon.svg"),
+                                 iconSize);
     }
 
-    QPixmap pixmap = IconGenerator::instance()->getIcon(item.m_path);
+    QPixmap pixmap;
+    if (panel->isAdvancedDisplay() && renderSize.width() > 0 &&
+        renderSize.height() > 0) {
+      pixmap = IconGenerator::instance()->getSizedIcon(
+          item.m_path, TDimension(renderSize.width(), renderSize.height()));
+      if (pixmap.isNull()) {
+        const QSize prev = panel->getPrevRenderIconSize();
+        if (prev.width() > 0 && prev.height() > 0 && prev != renderSize) {
+          pixmap = IconGenerator::instance()->peekSizedIcon(
+              item.m_path, TDimension(prev.width(), prev.height()));
+        }
+      }
+    }
+    if (pixmap.isNull())
+      pixmap = IconGenerator::instance()->getIcon(item.m_path);
     if (pixmap.isNull()) {
       pixmap = QPixmap(iconSize);
-      pixmap.fill(Qt::white);
+      pixmap.fill(Qt::transparent);
     }
+    if (panel->isAdvancedDisplay()) return pixmap;
     return scalePixmapKeepingAspectRatio(pixmap, iconSize, Qt::transparent);
   } else if (dataType == Icon)
     return QVariant();
@@ -891,9 +920,53 @@ bool SceneBrowser::canRenameItem(int index) const {
 
 int SceneBrowser::findIndexWithPath(TFilePath path) {
   int i;
-  for (i = 0; i < m_items.size(); i++)
+  for (i = 0; i < (int)m_items.size(); i++)
     if (m_items[i].m_path == path) return i;
+#ifdef _WIN32
+  const QString target =
+      QString::fromStdWString(path.getWideString()).toLower();
+  for (i = 0; i < (int)m_items.size(); i++) {
+    if (QString::fromStdWString(m_items[i].m_path.getWideString()).toLower() ==
+        target)
+      return i;
+  }
+#endif
   return -1;
+}
+
+//-----------------------------------------------------------------------------
+
+void SceneBrowser::storePersistedSelection() {
+  FileSelection *fs =
+      dynamic_cast<FileSelection *>(m_itemViewer->getPanel()->getSelection());
+  if (!fs || fs->isEmpty()) return;
+  const std::set<int> &indices = fs->getSelectedIndices();
+  std::vector<TFilePath> paths;
+  paths.reserve(indices.size());
+  for (int idx : indices) {
+    if (idx < 0 || idx >= (int)m_items.size()) continue;
+    paths.push_back(m_items[idx].m_path);
+  }
+  if (!paths.empty()) m_persistedSelection.swap(paths);
+}
+
+//-----------------------------------------------------------------------------
+
+void SceneBrowser::restorePersistedSelection() {
+  if (m_persistedSelection.empty()) return;
+  FileSelection *fs =
+      dynamic_cast<FileSelection *>(m_itemViewer->getPanel()->getSelection());
+  if (!fs) return;
+  std::vector<int> indices;
+  indices.reserve(m_persistedSelection.size());
+  for (const TFilePath &fp : m_persistedSelection) {
+    const int idx = findIndexWithPath(fp);
+    if (idx >= 0) indices.push_back(idx);
+  }
+  if (indices.empty()) return;
+  fs->select(&indices.front(), (int)indices.size());
+  fs->makeCurrent();
+  m_itemViewer->getPanel()->update();
 }
 
 //-----------------------------------------------------------------------------
@@ -1678,13 +1751,17 @@ void SceneBrowser::onSelectedItems(const std::set<int> &indexes) {
   std::list<std::vector<TFrameId>> frameIDs;
 
   if (indexes.empty()) {  // inform selection is released
+    m_persistedSelection.clear();
     emit filePathsSelected(filePaths, frameIDs);
     return;
   }
 
+  m_persistedSelection.clear();
+  m_persistedSelection.reserve(indexes.size());
   for (it = indexes.begin(); it != indexes.end(); ++it) {
     filePaths.insert(m_items[*it].m_path);
     frameIDs.insert(frameIDs.begin(), m_items[*it].m_frameIds);
+    m_persistedSelection.push_back(m_items[*it].m_path);
   }
 
   // reuse the list of TFrameId in order to skip loadInfo() when loading the
@@ -1879,12 +1956,17 @@ void SceneBrowser::newScene() {
 
 void SceneBrowser::showEvent(QShowEvent *) {
   activePreproductionBoards.insert(this);
+
+  storePersistedSelection();
+
   // refresh
   if (getFolder() != TFilePath())
     setFolder(getFolder(), false, true);
   else if (getDayDateString() != "")
     setHistoryDay(getDayDateString());
   m_folderTreeView->scrollTo(m_folderTreeView->currentIndex());
+
+  QTimer::singleShot(0, this, [this]() { restorePersistedSelection(); });
 
   // Refresh SVN
   DvDirVersionControlNode *vcNode = dynamic_cast<DvDirVersionControlNode *>(
@@ -1895,6 +1977,7 @@ void SceneBrowser::showEvent(QShowEvent *) {
 //-----------------------------------------------------------------------------
 
 void SceneBrowser::hideEvent(QHideEvent *) {
+  storePersistedSelection();
   activePreproductionBoards.erase(this);
   m_itemViewer->getPanel()->getItemViewPlayDelegate()->resetPlayWidget();
 }

@@ -244,12 +244,15 @@ private:
   std::string m_dayDateString;
   QStringList m_filter;
   std::map<TFilePath, Item> m_multiFileItemMap;
+  std::vector<TFilePath> m_persistedSelection;
 
 private:
   void readFrameCount(Item &item);
   void readInfo(Item &item);
 
   void refreshCurrentFolderItems();
+  void storePersistedSelection();
+  void restorePersistedSelection();
 
   DvItemListModel::Status getItemVersionControlStatus(
       const SceneBrowser::Item &item);
