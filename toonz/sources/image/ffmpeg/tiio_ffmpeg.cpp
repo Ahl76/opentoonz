@@ -601,7 +601,19 @@ void Ffmpeg::getFramesFromMovie(int frame) {
     preIFrameArgs << "-threads" << "auto" << "-i" << m_path.getQString();
 
     QStringList postIFrameArgs;
-    postIFrameArgs << "-y" << "-f" << "image2" << tempName;
+    if (frame == -1) {
+      // Extract every frame (legacy / bulk decode).
+      postIFrameArgs << "-y" << "-f" << "image2" << tempName;
+    } else {
+      // Extract only the requested frame. Full-movie decode was timing out
+      // for long render outputs, so File Browser HD thumbs never arrived and
+      // stayed stuck on the soft 80x60 fallback.
+      if (frame > 1) {
+        postIFrameArgs << "-vf"
+                       << QString("select=eq(n\\,%1)").arg(frame - 1);
+      }
+      postIFrameArgs << "-frames:v" << "1" << "-y" << tempStart;
+    }
 
     runFfmpeg(preIFrameArgs, postIFrameArgs, true, true, true, false);
 
@@ -612,14 +624,17 @@ void Ffmpeg::getFramesFromMovie(int frame) {
       return;
     }
 
-    // Add all extracted frames to cleanup list
-    for (int i = 1; i <= m_frameCount; i++) {
-      QString frameFile = ffmpegCachePath + QDir::separator() + m_tempBaseName +
-                          QString("_in%1.").arg(i, 6, 10, QChar('0')) +
-                          m_intermediateFormat;
-      if (!m_cleanUpList.contains(frameFile)) {
-        m_cleanUpList.push_back(frameFile);
+    if (frame == -1) {
+      for (int i = 1; i <= m_frameCount; i++) {
+        QString frameFile = ffmpegCachePath + QDir::separator() + m_tempBaseName +
+                            QString("_in%1.").arg(i, 6, 10, QChar('0')) +
+                            m_intermediateFormat;
+        if (!m_cleanUpList.contains(frameFile)) {
+          m_cleanUpList.push_back(frameFile);
+        }
       }
+    } else if (!m_cleanUpList.contains(tempStart)) {
+      m_cleanUpList.push_back(tempStart);
     }
   }
 }
@@ -822,20 +837,15 @@ TDimension TLevelReaderFFmpeg::getSize() { return m_size; }
 TImageP TLevelReaderFFmpeg::load(int frameIndex) {
   if (!m_ffmpegReader) return TImageP();
 
-  if (!m_framesExtracted) {
-    try {
-      m_ffmpegReader->getFramesFromMovie();
-      // Use checkFilesExist() instead of accessing private member
-      if (m_ffmpegReader->checkFilesExist()) {
-        m_framesExtracted = true;
-      } else {
-        throw TImageException(m_path, "Frame extraction produced no files.");
-      }
-    } catch (const TImageException &e) {
-      DVGui::warning(QObject::tr("Failed to extract frames from movie: %1")
-                         .arg(QString::fromStdWString(e.getMessage())));
-      return TImageP();
-    }
+  try {
+    // Decode just this frame (see Ffmpeg::getFramesFromMovie). Avoids waiting
+    // for a full-movie extract before the first browser / filmstrip thumb.
+    m_ffmpegReader->getFramesFromMovie(frameIndex);
+    m_framesExtracted = true;
+  } catch (const TImageException &e) {
+    DVGui::warning(QObject::tr("Failed to extract frames from movie: %1")
+                       .arg(QString::fromStdWString(e.getMessage())));
+    return TImageP();
   }
 
   return m_ffmpegReader->getImage(frameIndex);
