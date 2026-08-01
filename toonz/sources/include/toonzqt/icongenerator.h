@@ -77,6 +77,8 @@ public:
     bool m_inkCheckEnabled;
     bool m_ink1CheckEnabled;
     bool m_paintCheckEnabled;
+    //! When true, vector/mesh icons clear to transparent instead of white/black.
+    bool m_transparentBg;
 
     Settings()
         : m_transparencyCheck(false)
@@ -86,7 +88,8 @@ public:
         , m_paintIndex(-1)
         , m_inkCheckEnabled(false)
         , m_ink1CheckEnabled(false)
-        , m_paintCheckEnabled(false) {}
+        , m_paintCheckEnabled(false)
+        , m_transparentBg(false) {}
   };
 
 public:
@@ -101,7 +104,10 @@ public:
 
   TDimension getIconSize() const;
 
-  TOfflineGL *getOfflineGLContext();
+  //! Returns a per-thread OfflineGL buffer at least as large as the filmstrip /
+  //! cast icon prefs, and optionally \p minSize (needed by getSizedIcon for
+  //! vector/mesh icons larger than the preference size).
+  TOfflineGL *getOfflineGLContext(const TDimension &minSize = TDimension());
 
   // icons from splines
   QPixmap getIcon(TStageObjectSpline *spline);
@@ -120,6 +126,12 @@ public:
   // icons from files
   QPixmap getIcon(const TFilePath &path,
                   const TFrameId &fid = TFrameId::NO_FRAME);
+  //! Request a file/scene icon rendered at \p dim (cached under a size suffix).
+  QPixmap getSizedIcon(const TFilePath &path, const TDimension &dim,
+                       const TFrameId &fid = TFrameId::NO_FRAME);
+  //! Cache lookup only — never queues a render (for soft-scale fallback).
+  QPixmap peekSizedIcon(const TFilePath &path, const TDimension &dim,
+                        const TFrameId &fid = TFrameId::NO_FRAME);
   void invalidate(const TFilePath &path,
                   const TFrameId &fid = TFrameId::NO_FRAME);
   void remove(const TFilePath &path, const TFrameId &fid = TFrameId::NO_FRAME);
@@ -131,6 +143,9 @@ public:
 
   void clearRequests();
   void clearSceneIcons();
+  //! Drop File Browser `_r_WxH` caches except the listed sizes (0 = keep none).
+  void purgeResponsiveFileIconsExcept(const TDimension &keepA,
+                                      const TDimension &keepB = TDimension());
 
   static TRaster32P generateVectorFileIcon(const TFilePath &path,
                                            const TDimension &iconSize,
