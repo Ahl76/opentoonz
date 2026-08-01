@@ -127,11 +127,14 @@ public:
   QPixmap getIcon(const TFilePath &path,
                   const TFrameId &fid = TFrameId::NO_FRAME);
   //! Request a file/scene icon rendered at \p dim (cached under a size suffix).
+  //! \p browserBgMode matches DvItemViewerPanel::ThumbnailBgMode (0 = auto).
   QPixmap getSizedIcon(const TFilePath &path, const TDimension &dim,
-                       const TFrameId &fid = TFrameId::NO_FRAME);
+                       const TFrameId &fid = TFrameId::NO_FRAME,
+                       int browserBgMode = 0);
   //! Cache lookup only — never queues a render (for soft-scale fallback).
   QPixmap peekSizedIcon(const TFilePath &path, const TDimension &dim,
-                        const TFrameId &fid = TFrameId::NO_FRAME);
+                        const TFrameId &fid = TFrameId::NO_FRAME,
+                        int browserBgMode = 0);
   void invalidate(const TFilePath &path,
                   const TFrameId &fid = TFrameId::NO_FRAME);
   void remove(const TFilePath &path, const TFrameId &fid = TFrameId::NO_FRAME);
@@ -149,17 +152,20 @@ public:
 
   static TRaster32P generateVectorFileIcon(const TFilePath &path,
                                            const TDimension &iconSize,
-                                           const TFrameId &fid);
+                                           const TFrameId &fid,
+                                           const Settings &settings = Settings());
   static TRaster32P generateRasterFileIcon(const TFilePath &path,
                                            const TDimension &iconSize,
-                                           const TFrameId &fid);
+                                           const TFrameId &fid,
+                                           const Settings &settings = Settings());
   static TRaster32P generateSceneFileIcon(const TFilePath &path,
                                           const TDimension &iconSize, int row);
   static TRaster32P generateSplineFileIcon(const TFilePath &path,
                                            const TDimension &iconSize);
   static TRaster32P generateMeshFileIcon(const TFilePath &path,
                                          const TDimension &iconSize,
-                                         const TFrameId &fid);
+                                         const TFrameId &fid,
+                                         const Settings &settings = Settings());
 
   // This function is called when only colors of styles are changed in toonz
   // raster levels. In such case it doesn't need to re-compute icons but needs

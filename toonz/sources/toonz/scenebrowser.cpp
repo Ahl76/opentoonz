@@ -839,15 +839,20 @@ QVariant SceneBrowser::getItemData(int index, DataType dataType,
     }
 
     QPixmap pixmap;
+    const int bgMode = panel->isAdvancedDisplay()
+                           ? (int)panel->getThumbnailBgMode()
+                           : 0;
     if (panel->isAdvancedDisplay() && renderSize.width() > 0 &&
         renderSize.height() > 0) {
       pixmap = IconGenerator::instance()->getSizedIcon(
-          item.m_path, TDimension(renderSize.width(), renderSize.height()));
+          item.m_path, TDimension(renderSize.width(), renderSize.height()),
+          TFrameId::NO_FRAME, bgMode);
       if (pixmap.isNull()) {
         const QSize prev = panel->getPrevRenderIconSize();
         if (prev.width() > 0 && prev.height() > 0 && prev != renderSize) {
           pixmap = IconGenerator::instance()->peekSizedIcon(
-              item.m_path, TDimension(prev.width(), prev.height()));
+              item.m_path, TDimension(prev.width(), prev.height()),
+              TFrameId::NO_FRAME, bgMode);
         }
       }
     }

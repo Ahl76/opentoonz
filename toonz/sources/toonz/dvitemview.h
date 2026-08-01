@@ -121,6 +121,7 @@ class ItemViewPlayWidget final : public QWidget {
     QPixmap m_pixmap;
     QSize m_iconSize;    //!< Layout / paint cell size
     QSize m_renderSize;  //!< Native HD IconGenerator size (debounced)
+    int m_browserBgMode; //!< DvItemViewerPanel::ThumbnailBgMode
 
   public:
     PlayManager();
@@ -128,7 +129,7 @@ class ItemViewPlayWidget final : public QWidget {
 
     void reset();
     void setInfo(DvItemListModel *model, int index, const QSize &layoutSize,
-                 const QSize &renderSize);
+                 const QSize &renderSize, int browserBgMode = 0);
     /*! Increase current frame if icon is computed; return true if frame is
      * increased. */
     bool increaseCurrentFrame();
@@ -261,10 +262,11 @@ class DvItemViewerPanel final : public QFrame, public TSelection::View {
 public:
   enum ViewType { ListView = 0, TableView, ThumbnailView };
   enum ThumbnailBgMode {
-    BgTransparent = 0,
+    BgTransparent = 0,  //!< No background fill (alpha preserved)
     BgWhite,
     BgBlack,
-    BgCheckered
+    BgCheckered,
+    BgAuto  //!< Automatic — official baked thumbnail backgrounds (no button)
   };
   enum ThumbnailSizePreset {
     SizeList = 0,
@@ -574,10 +576,13 @@ class DvItemViewerButtonBar final : public QToolBar {
   QAction *m_sizeMenuAct;
   QAction *m_sizeSliderAct;
   QAction *m_fpsAct;
+  QAction *m_typeFilterListAct;
   QAction *m_searchAct;
   QList<QAction *> m_typeFilterActs;
+  QList<QAction *> m_typeFilterMenuActs;
   QActionGroup *m_bgGroup;
   QToolButton *m_sizeMenuBtn;
+  QToolButton *m_typeFilterListBtn;
   QToolButton *m_fpsBtn;
   DVGui::IntLineEdit *m_fpsField;
   QToolButton *m_loopBtn;
@@ -596,6 +601,7 @@ class DvItemViewerButtonBar final : public QToolBar {
   void refreshAdvancedControlsVisibility();
   void addGuiShowHideMenu(QMenu *menu);
   void updateFpsButtonLabel();
+  void syncTypeFilterMenuFromIcons();
 
 public:
   DvItemViewerButtonBar(DvItemViewer *itemViewer, QWidget *parent = 0);
@@ -619,6 +625,7 @@ public slots:
   void onPanelThumbnailSizeChanged(const QSize &size);
   void onSearchTextEdited(const QString &text);
   void onTypeFilterTriggered(bool checked);
+  void onTypeFilterMenuTriggered(bool checked);
   void onPlayFpsTriggered(QAction *action);
   void onPlayFpsFieldEdited();
   void onPlayLoopToggled(bool on);

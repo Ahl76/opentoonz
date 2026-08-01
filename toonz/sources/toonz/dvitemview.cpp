@@ -133,30 +133,62 @@ QIcon makeBrowserTypeFilterIcon(const QString &iconName) {
   return iconFromBwPixmap(toBrowserBwPixmap(pm));
 }
 
-//! Media / movie chip — level_strip (fallback new_scene).
+//! Themed toolbar chip — SvgIconEngine (same wiring as zoom / background icons).
+QIcon makeBrowserThemedFilterIcon(const QString &iconName) {
+  QIcon ic = createQIcon(iconName);
+  if (!ic.isNull()) return ic;
+  return QIcon();
+}
+
+//! Media / movie — black SVG; needs theme colorization, not B&W conversion.
 QIcon makeBrowserMediaFilterIcon() {
-  QIcon fromStrip = makeBrowserTypeFilterIcon(QStringLiteral("level_strip"));
-  if (!fromStrip.isNull() && !fromStrip.availableSizes().isEmpty())
-    return fromStrip;
+  QIcon ic = makeBrowserThemedFilterIcon(QStringLiteral("level_strip"));
+  if (!ic.isNull()) return ic;
+  return makeBrowserThemedFilterIcon(QStringLiteral("new_scene"));
+}
 
-  QIcon fromScene = makeBrowserTypeFilterIcon(QStringLiteral("new_scene"));
-  if (!fromScene.isNull() && !fromScene.availableSizes().isEmpty())
-    return fromScene;
+//! Theme-aware ink (same source as SvgIconEngine / toolbar icons).
+QColor browserThemeIconColor() {
+  ThemeManager &tm = ThemeManager::getInstance();
+  QColor c         = tm.getIconBaseColor();
+  if (c.isValid()) return c;
+  c = tm.getCustomPropertyColor(QStringLiteral("icon-base-color"));
+  if (c.isValid()) return c;
+  c = QApplication::palette().color(QPalette::WindowText);
+  return c.isValid() ? c : QColor(0xd8, 0xd8, 0xd8);
+}
 
-  const int s = 16;
-  QImage img(s, s, QImage::Format_ARGB32_Premultiplied);
-  img.fill(Qt::transparent);
-  QPainter p(&img);
-  p.setPen(QPen(QColor(40, 40, 40), 1));
-  p.setBrush(QColor(200, 200, 200));
-  p.drawRect(2, 3, 12, 10);
-  for (int y = 4; y <= 11; y += 2) {
-    p.fillRect(3, y, 2, 1, QColor(70, 70, 70));
-    p.fillRect(11, y, 2, 1, QColor(70, 70, 70));
+//! List + funnel overlay — themed viewlist, distinct from List view nearby.
+QIcon makeBrowserTypeFilterListIcon() {
+  const QIcon base = createQIcon(QStringLiteral("viewlist"));
+  if (base.isNull()) return QIcon();
+
+  QIcon result;
+  const QSize sz(16, 16);
+  const QIcon::Mode modes[] = {QIcon::Normal, QIcon::Active, QIcon::Disabled,
+                               QIcon::Selected};
+  const QIcon::State states[] = {QIcon::Off, QIcon::On};
+  for (QIcon::Mode mode : modes) {
+    for (QIcon::State state : states) {
+      const QPixmap pm = base.pixmap(sz, mode, state);
+      if (pm.isNull()) continue;
+      QImage img =
+          pm.toImage().convertToFormat(QImage::Format_ARGB32_Premultiplied);
+      const QColor ink = browserThemeIconColor();
+      QPainter p(&img);
+      p.setRenderHint(QPainter::Antialiasing, true);
+      p.setPen(QPen(ink.darker(130), 1));
+      p.setBrush(ink.lighter(145));
+      QPolygonF funnel;
+      funnel << QPointF(9, 9) << QPointF(15, 9) << QPointF(12, 14);
+      p.drawPolygon(funnel);
+      p.end();
+      QPixmap out = QPixmap::fromImage(img);
+      out.setDevicePixelRatio(pm.devicePixelRatio());
+      result.addPixmap(out, mode, state);
+    }
   }
-  p.fillRect(6, 5, 4, 6, QColor(120, 120, 120));
-  p.end();
-  return iconFromBwPixmap(QPixmap::fromImage(img));
+  return result;
 }
 
 //! Dedicated B&W palette chip.
@@ -200,11 +232,12 @@ enum BrowserAdvancedGuiPart {
   AGUI_SizeSlider  = 0x01,
   AGUI_SizeMenu    = 0x02,
   AGUI_Background  = 0x04,
-  AGUI_TypeFilters = 0x08,
-  AGUI_Search      = 0x10,
-  AGUI_PlayFps     = 0x20,
+  AGUI_TypeFilters     = 0x08,
+  AGUI_Search          = 0x10,
+  AGUI_PlayFps         = 0x20,
+  AGUI_TypeFilterList  = 0x40,
   AGUI_All = AGUI_SizeSlider | AGUI_SizeMenu | AGUI_Background | AGUI_TypeFilters |
-             AGUI_Search | AGUI_PlayFps
+             AGUI_Search | AGUI_PlayFps | AGUI_TypeFilterList
 };
 
 TEnv::IntVar BrowserView("BrowserView", 1);
@@ -217,8 +250,8 @@ TEnv::IntVar BrowserPlayFps("BrowserPlayFps", 10);  // legacy interval = 100 ms
 TEnv::IntVar CastPlayFps("CastPlayFps", 10);
 TEnv::IntVar BrowserPlayLoop("BrowserPlayLoop", 1);
 TEnv::IntVar CastPlayLoop("CastPlayLoop", 1);
-TEnv::IntVar BrowserThumbnailBg("BrowserThumbnailBg", 0);
-TEnv::IntVar CastThumbnailBg("CastThumbnailBg", 0);
+TEnv::IntVar BrowserThumbnailBg("BrowserThumbnailBg", 4);
+TEnv::IntVar CastThumbnailBg("CastThumbnailBg", 4);
 TEnv::IntVar BrowserThumbnailWidth("BrowserThumbnailWidth", 80);
 TEnv::IntVar CastThumbnailWidth("CastThumbnailWidth", 80);
 TEnv::IntVar BrowserFileSizeisVisible("BrowserFileSizeisVisible", 1);
@@ -557,7 +590,8 @@ ItemViewPlayWidget::PlayManager::PlayManager()
     , m_currentFidIndex(0)
     , m_pixmap(QPixmap())
     , m_iconSize(QSize())
-    , m_renderSize(QSize()) {}
+    , m_renderSize(QSize())
+    , m_browserBgMode(0) {}
 
 //-----------------------------------------------------------------------------
 
@@ -569,6 +603,7 @@ void ItemViewPlayWidget::PlayManager::reset() {
   m_path            = TFilePath();
   m_currentFidIndex = 0;
   m_pixmap          = QPixmap();
+  m_browserBgMode   = 0;
 }
 
 //-----------------------------------------------------------------------------
@@ -583,9 +618,11 @@ QPixmap ItemViewPlayWidget::PlayManager::fetchFramePixmap(const TFrameId &fid,
     const TDimension dim(m_renderSize.width(), m_renderSize.height());
     // Frame 0 / NO_FRAME: same convention as static thumbnails (scene PNG).
     if (fid == TFrameId::NO_FRAME || m_currentFidIndex == 0)
-      pixmap = IconGenerator::instance()->getSizedIcon(m_path, dim);
+      pixmap = IconGenerator::instance()->getSizedIcon(
+          m_path, dim, TFrameId::NO_FRAME, m_browserBgMode);
     else
-      pixmap = IconGenerator::instance()->getSizedIcon(m_path, dim, fid);
+      pixmap = IconGenerator::instance()->getSizedIcon(m_path, dim, fid,
+                                                       m_browserBgMode);
   }
   if (pixmap.isNull()) {
     if (fid == TFrameId::NO_FRAME || m_currentFidIndex == 0)
@@ -600,7 +637,8 @@ QPixmap ItemViewPlayWidget::PlayManager::fetchFramePixmap(const TFrameId &fid,
 
 void ItemViewPlayWidget::PlayManager::setInfo(DvItemListModel *model, int index,
                                               const QSize &layoutSize,
-                                              const QSize &renderSize) {
+                                              const QSize &renderSize,
+                                              int browserBgMode) {
   assert(!!model && index >= 0);
   QString string =
       model->getItemData(index, DvItemListModel::FullPath).toString();
@@ -612,12 +650,14 @@ void ItemViewPlayWidget::PlayManager::setInfo(DvItemListModel *model, int index,
     m_pixmap          = QPixmap();
     if (!layoutSize.isEmpty()) m_iconSize = layoutSize;
     if (!renderSize.isEmpty()) m_renderSize = renderSize;
+    m_browserBgMode = browserBgMode;
     return;
   }
 
   reset();
-  m_iconSize   = layoutSize.isEmpty() ? QSize(80, 60) : layoutSize;
-  m_renderSize = renderSize.isEmpty() ? m_iconSize : renderSize;
+  m_iconSize       = layoutSize.isEmpty() ? QSize(80, 60) : layoutSize;
+  m_renderSize     = renderSize.isEmpty() ? m_iconSize : renderSize;
+  m_browserBgMode  = browserBgMode;
   // Do not seed with the static thumbnail — it would ghost under / as the
   // first "animation" frame while HD frames are still generating.
   m_pixmap = QPixmap();
@@ -769,11 +809,13 @@ void ItemViewPlayWidget::setIsPlaying(DvItemListModel *model, int index) {
   if (m_currentItemIndex == -1) {
     m_currentItemIndex = index;
     QSize layoutSize(80, 60), renderSize(80, 60);
+    int bgMode = 0;
     if (auto *panel = qobject_cast<DvItemViewerPanel *>(parentWidget())) {
       layoutSize = panel->getIconSize();
       renderSize = panel->getRenderIconSize();
+      bgMode     = (int)panel->getThumbnailBgMode();
     }
-    m_playManager->setInfo(model, index, layoutSize, renderSize);
+    m_playManager->setInfo(model, index, layoutSize, renderSize, bgMode);
     m_playManager->getCurrentFrame();  // prime first HD frame if ready
   }
   play();
@@ -789,11 +831,13 @@ void ItemViewPlayWidget::setIsPlayingCurrentFrameIndex(DvItemListModel *model,
   if (m_currentItemIndex == -1) {
     m_currentItemIndex = index;
     QSize layoutSize(80, 60), renderSize(80, 60);
+    int bgMode = 0;
     if (auto *panel = qobject_cast<DvItemViewerPanel *>(parentWidget())) {
       layoutSize = panel->getIconSize();
       renderSize = panel->getRenderIconSize();
+      bgMode     = (int)panel->getThumbnailBgMode();
     }
-    m_playManager->setInfo(model, index, layoutSize, renderSize);
+    m_playManager->setInfo(model, index, layoutSize, renderSize, bgMode);
   }
   if (!m_playManager->setCurrentFrameIndexFromXValue(xValue, length)) return;
   stop();  // Devo fare stop prima di cambiare il frame corrente
@@ -968,7 +1012,7 @@ DvItemViewerPanel::DvItemViewerPanel(DvItemViewer *viewer, bool noContextMenu,
     , m_multiSelectionEnabled(multiSelectionEnabled)
     , m_missingColor(Qt::gray)
     , m_advancedDisplay(false)
-    , m_thumbnailBgMode(BgTransparent)
+    , m_thumbnailBgMode(BgAuto)
     , m_playFps(10)
     , m_playLoop(true)
     , m_renderSizeTimer(nullptr) {
@@ -1007,7 +1051,7 @@ DvItemViewerPanel::DvItemViewerPanel(DvItemViewer *viewer, bool noContextMenu,
   const int bg =
       isCast ? (int)CastThumbnailBg : (int)BrowserThumbnailBg;
   m_thumbnailBgMode = (ThumbnailBgMode)std::max(
-      0, std::min(bg, (int)BgCheckered));
+      0, std::min(bg, (int)BgAuto));
   const int width =
       isCast ? (int)CastThumbnailWidth : (int)BrowserThumbnailWidth;
   if (m_advancedDisplay) {
@@ -1092,6 +1136,11 @@ void DvItemViewerPanel::setThumbnailWidth(int width) {
 void DvItemViewerPanel::setThumbnailBgMode(ThumbnailBgMode mode) {
   if (m_thumbnailBgMode == mode) return;
   m_thumbnailBgMode = mode;
+  // Icons cached with a baked white/magenta letterbox must be regenerated when
+  // a forced background is selected (or when returning to automatic mode).
+  IconGenerator::instance()->clearRequests();
+  IconGenerator::instance()->purgeResponsiveFileIconsExcept(TDimension());
+  if (m_itemViewPlayDelegate) m_itemViewPlayDelegate->resetPlayWidget();
   emit thumbnailBgModeChanged((int)mode);
   update();
 }
@@ -1106,7 +1155,7 @@ void DvItemViewerPanel::setAdvancedDisplay(bool on) {
     m_renderIconSize     = m_iconSize;
     m_prevRenderIconSize = m_iconSize;
     if (m_renderSizeTimer) m_renderSizeTimer->stop();
-    m_thumbnailBgMode = BgTransparent;
+    m_thumbnailBgMode = BgAuto;
     IconGenerator::instance()->clearRequests();
     IconGenerator::instance()->purgeResponsiveFileIconsExcept(TDimension());
   } else {
@@ -1118,7 +1167,7 @@ void DvItemViewerPanel::setAdvancedDisplay(bool on) {
     const int bg =
         isCast ? (int)CastThumbnailBg : (int)BrowserThumbnailBg;
     m_thumbnailBgMode = (ThumbnailBgMode)std::max(
-        0, std::min(bg, (int)BgCheckered));
+        0, std::min(bg, (int)BgAuto));
   }
   if (m_viewer) m_viewer->updateContentSize();
   emit advancedDisplayChanged(on);
@@ -1233,7 +1282,9 @@ void DvItemViewerPanel::fillThumbnailBackground(QPainter &p,
                QBrush(DVGui::CommonChessboard::instance()->getPixmap()));
     break;
   case BgTransparent:
+  case BgAuto:
   default:
+    // Auto / no-fill: pas de remplissage UI (vignette telle quelle).
     break;
   }
 }
@@ -2386,9 +2437,11 @@ DvItemViewerButtonBar::DvItemViewerButtonBar(DvItemViewer *itemViewer,
     , m_sizeMenuAct(nullptr)
     , m_sizeSliderAct(nullptr)
     , m_fpsAct(nullptr)
+    , m_typeFilterListAct(nullptr)
     , m_searchAct(nullptr)
     , m_bgGroup(nullptr)
     , m_sizeMenuBtn(nullptr)
+    , m_typeFilterListBtn(nullptr)
     , m_fpsBtn(nullptr)
     , m_fpsField(nullptr)
     , m_loopBtn(nullptr)
@@ -2586,6 +2639,7 @@ void DvItemViewerButtonBar::uniformAdvancedIconButtons() {
   styleAdvancedIconButton(m_bgTransparentAct);
   styleAdvancedIconButton(m_bgCheckeredAct);
   styleAdvancedIconWidget(m_sizeMenuBtn);
+  styleAdvancedIconWidget(m_typeFilterListBtn);
   styleAdvancedIconWidget(m_fpsBtn);
   for (QAction *act : m_typeFilterActs) styleAdvancedIconButton(act);
 }
@@ -2611,11 +2665,13 @@ void DvItemViewerButtonBar::refreshAdvancedControlsVisibility() {
   const bool showSlider = partOn(AGUI_SizeSlider);
   const bool showMenu   = partOn(AGUI_SizeMenu);
   const bool showBg     = partOn(AGUI_Background);
-  const bool showTypes  = partOn(AGUI_TypeFilters) && isBrowser;
-  const bool showSearch = partOn(AGUI_Search) && isBrowser;
-  const bool showFps    = partOn(AGUI_PlayFps) && isBrowser;
-  const bool anyPart =
-      showSlider || showMenu || showBg || showTypes || showSearch || showFps;
+  const bool showTypeIcons = partOn(AGUI_TypeFilters) && isBrowser;
+  const bool showTypeList  = partOn(AGUI_TypeFilterList) && isBrowser;
+  const bool showTypes     = showTypeIcons || showTypeList;
+  const bool showSearch    = partOn(AGUI_Search) && isBrowser;
+  const bool showFps       = partOn(AGUI_PlayFps) && isBrowser;
+  const bool anyPart = showSlider || showMenu || showBg || showTypes || showSearch ||
+                       showFps;
 
   // Spacers on BOTH sides keep the advanced cluster centered (YES mockup),
   // not glued to the right edge (NO mockup).
@@ -2630,7 +2686,8 @@ void DvItemViewerButtonBar::refreshAdvancedControlsVisibility() {
   if (m_bgTransparentAct) m_bgTransparentAct->setVisible(showBg);
   if (m_bgCheckeredAct) m_bgCheckeredAct->setVisible(showBg);
   if (m_typeSep) m_typeSep->setVisible(showBg && showTypes);
-  for (QAction *act : m_typeFilterActs) act->setVisible(showTypes);
+  for (QAction *act : m_typeFilterActs) act->setVisible(showTypeIcons);
+  if (m_typeFilterListAct) m_typeFilterListAct->setVisible(showTypeList);
   if (m_searchSep)
     m_searchSep->setVisible(showTypes && (showFps || showSearch));
   if (m_fpsAct) m_fpsAct->setVisible(showFps);
@@ -2759,7 +2816,7 @@ void DvItemViewerButtonBar::buildAdvancedControls() {
   m_bgSep = addBlockSep();
 
   m_bgGroup = new QActionGroup(this);
-  m_bgGroup->setExclusive(true);
+  m_bgGroup->setExclusive(false);  // re-click or uncheck all → Auto
 
   m_bgWhiteAct =
       new QAction(createQIcon("preview_white"), tr("White Background"), this);
@@ -2778,10 +2835,10 @@ void DvItemViewerButtonBar::buildAdvancedControls() {
   addAction(m_bgBlackAct);
 
   m_bgTransparentAct = new QAction(createQIcon("transparency_check"),
-                                   tr("Transparent Background"), this);
+                                   tr("No Background Fill"), this);
   m_bgTransparentAct->setCheckable(true);
   m_bgTransparentAct->setData((int)DvItemViewerPanel::BgTransparent);
-  m_bgTransparentAct->setToolTip(tr("Transparent Background"));
+  m_bgTransparentAct->setToolTip(tr("No Background Fill"));
   m_bgGroup->addAction(m_bgTransparentAct);
   addAction(m_bgTransparentAct);
 
@@ -2830,12 +2887,38 @@ void DvItemViewerButtonBar::buildAdvancedControls() {
     QAction *act = new QAction(icon, label, this);
     act->setCheckable(true);
     act->setData(def.extensions);
-    act->setToolTip(label);  // type name only — no Shift+click copy
+    act->setToolTip(label);
     addAction(act);
     connect(act, &QAction::triggered, this,
             &DvItemViewerButtonBar::onTypeFilterTriggered);
     m_typeFilterActs.append(act);
   }
+
+  // Checklist popup for content types (viewlist + funnel, distinct from List view).
+  m_typeFilterListBtn = new QToolButton(this);
+  m_typeFilterListBtn->setIcon(makeBrowserTypeFilterListIcon());
+  m_typeFilterListBtn->setToolTip(tr("Content Type Filters"));
+  m_typeFilterListBtn->setPopupMode(QToolButton::InstantPopup);
+  m_typeFilterListBtn->setAutoRaise(true);
+  m_typeFilterListBtn->setFocusPolicy(Qt::NoFocus);
+  m_typeFilterListBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
+  QMenu *typeFilterMenu = new QMenu(m_typeFilterListBtn);
+  for (QAction *iconAct : m_typeFilterActs) {
+    QAction *menuAct = typeFilterMenu->addAction(iconAct->text());
+    menuAct->setCheckable(true);
+    connect(menuAct, &QAction::triggered, this,
+            &DvItemViewerButtonBar::onTypeFilterMenuTriggered);
+    m_typeFilterMenuActs.append(menuAct);
+  }
+  connect(typeFilterMenu, &QMenu::aboutToShow, this,
+          &DvItemViewerButtonBar::syncTypeFilterMenuFromIcons);
+  m_typeFilterListBtn->setMenu(typeFilterMenu);
+  m_typeFilterListAct = addWidget(m_typeFilterListBtn);
+  connect(ThemePropertiesNotifier::instance(),
+          &ThemePropertiesNotifier::propertiesChanged, this, [this]() {
+            if (m_typeFilterListBtn)
+              m_typeFilterListBtn->setIcon(makeBrowserTypeFilterListIcon());
+          });
 
   m_searchSep = addBlockSep();
 
@@ -2924,12 +3007,17 @@ void DvItemViewerButtonBar::syncAdvancedControlsFromPanel() {
 
   m_updatingUi = true;
   const int mode = (int)panel->getThumbnailBgMode();
-  if (m_bgWhiteAct) m_bgWhiteAct->setChecked(mode == DvItemViewerPanel::BgWhite);
-  if (m_bgBlackAct) m_bgBlackAct->setChecked(mode == DvItemViewerPanel::BgBlack);
+  const bool isAuto = (mode == (int)DvItemViewerPanel::BgAuto);
+  if (m_bgWhiteAct)
+    m_bgWhiteAct->setChecked(!isAuto && mode == DvItemViewerPanel::BgWhite);
+  if (m_bgBlackAct)
+    m_bgBlackAct->setChecked(!isAuto && mode == DvItemViewerPanel::BgBlack);
   if (m_bgTransparentAct)
-    m_bgTransparentAct->setChecked(mode == DvItemViewerPanel::BgTransparent);
+    m_bgTransparentAct->setChecked(!isAuto &&
+                                   mode == DvItemViewerPanel::BgTransparent);
   if (m_bgCheckeredAct)
-    m_bgCheckeredAct->setChecked(mode == DvItemViewerPanel::BgCheckered);
+    m_bgCheckeredAct->setChecked(!isAuto &&
+                                 mode == DvItemViewerPanel::BgCheckered);
   if (m_sizeSlider) m_sizeSlider->setValue(panel->getIconSize().width());
   updateFpsButtonLabel();
   m_updatingUi = false;
@@ -2975,7 +3063,8 @@ void DvItemViewerButtonBar::addGuiShowHideMenu(QMenu *menu) {
       {AGUI_SizeSlider, QT_TR_NOOP("Size Slider")},
       {AGUI_SizeMenu, QT_TR_NOOP("Size Menu")},
       {AGUI_Background, QT_TR_NOOP("Background Modes")},
-      {AGUI_TypeFilters, QT_TR_NOOP("Content Type Filters")},
+      {AGUI_TypeFilters, QT_TR_NOOP("Type Filter Icons")},
+      {AGUI_TypeFilterList, QT_TR_NOOP("Type Filter List")},
       {AGUI_PlayFps, QT_TR_NOOP("Playback FPS")},
       {AGUI_Search, QT_TR_NOOP("Search")},
   };
@@ -3067,7 +3156,11 @@ void DvItemViewerButtonBar::onAdvancedDisplayToggled(bool on) {
   persistAdvancedSettings();
   if (!on) {
     m_updatingUi = true;
-    for (QAction *act : m_typeFilterActs) act->setChecked(false);
+    for (int i = 0; i < m_typeFilterActs.size(); ++i) {
+      m_typeFilterActs[i]->setChecked(false);
+      if (i < m_typeFilterMenuActs.size())
+        m_typeFilterMenuActs[i]->setChecked(false);
+    }
     m_updatingUi = false;
     emit typeFilterChanged(QStringList());
     if (m_searchEdit && !m_searchEdit->text().isEmpty()) m_searchEdit->clear();
@@ -3124,8 +3217,27 @@ void DvItemViewerButtonBar::onBgModeTriggered(QAction *action) {
   if (m_updatingUi || !action || !m_itemViewer) return;
   DvItemViewerPanel *panel = m_itemViewer->getPanel();
   if (!panel) return;
-  panel->setThumbnailBgMode(
-      (DvItemViewerPanel::ThumbnailBgMode)action->data().toInt());
+
+  m_updatingUi = true;
+  DvItemViewerPanel::ThumbnailBgMode mode = DvItemViewerPanel::BgAuto;
+  if (action->isChecked()) {
+    mode = (DvItemViewerPanel::ThumbnailBgMode)action->data().toInt();
+    if (m_bgGroup) {
+      for (QAction *bgAct : m_bgGroup->actions()) {
+        if (bgAct != action) bgAct->setChecked(false);
+      }
+    }
+  } else if (m_bgGroup) {
+    for (QAction *bgAct : m_bgGroup->actions()) {
+      if (bgAct->isChecked()) {
+        mode = (DvItemViewerPanel::ThumbnailBgMode)bgAct->data().toInt();
+        break;
+      }
+    }
+  }
+  m_updatingUi = false;
+
+  panel->setThumbnailBgMode(mode);
   persistAdvancedSettings();
 }
 
@@ -3205,6 +3317,34 @@ void DvItemViewerButtonBar::onTypeFilterTriggered(bool) {
     // Sole active chip clicked again → clear filter (show all types).
     if (!wasSoleSelected) act->setChecked(true);
   }
+  m_updatingUi = false;
+
+  syncTypeFilterMenuFromIcons();
+  emit typeFilterChanged(selectedTypeExtensions());
+}
+
+//-----------------------------------------------------------------------------
+
+void DvItemViewerButtonBar::syncTypeFilterMenuFromIcons() {
+  if (m_updatingUi) return;
+  m_updatingUi = true;
+  const int n = qMin(m_typeFilterActs.size(), m_typeFilterMenuActs.size());
+  for (int i = 0; i < n; ++i)
+    m_typeFilterMenuActs[i]->setChecked(m_typeFilterActs[i]->isChecked());
+  m_updatingUi = false;
+}
+
+//-----------------------------------------------------------------------------
+
+void DvItemViewerButtonBar::onTypeFilterMenuTriggered(bool) {
+  if (m_updatingUi) return;
+  QAction *menuAct = qobject_cast<QAction *>(sender());
+  if (!menuAct) return;
+  const int idx = m_typeFilterMenuActs.indexOf(menuAct);
+  if (idx < 0 || idx >= m_typeFilterActs.size()) return;
+
+  m_updatingUi = true;
+  m_typeFilterActs[idx]->setChecked(menuAct->isChecked());
   m_updatingUi = false;
 
   emit typeFilterChanged(selectedTypeExtensions());

@@ -61,6 +61,18 @@ namespace {
 const TDimension IconSize(80, 60);
 TDimension FilmstripIconSize(0, 0);
 
+// Matches DvItemViewerPanel::ThumbnailBgMode::BgAuto (value 4).
+constexpr int kBrowserBgAuto = 4;
+
+IconGenerator::Settings browserFileIconSettings(int browserBgMode) {
+  IconGenerator::Settings s;
+  if (browserBgMode == kBrowserBgAuto) return s;  // Auto: official opaque icons
+  // Explicit bg modes: UI fill + transparent letterbox in the icon cache.
+  s.m_transparentBg = true;
+  s.m_blackBgCheck  = (browserBgMode == 2);  // BgBlack
+  return s;
+}
+
 // Access name-based storage
 std::set<std::string> iconsMap;
 typedef std::set<std::string>::iterator IconIterator;
@@ -1009,16 +1021,19 @@ void XsheetIconRenderer::run() {
 class FileIconRenderer final : public IconRenderer {
   TFilePath m_path;
   TFrameId m_fid;
+  int m_browserBgMode;
 
 public:
   FileIconRenderer(const TDimension &iconSize, const TFilePath &path,
-                   const TFrameId &fid)
-      : IconRenderer(getId(path, fid, iconSize), iconSize)
+                   const TFrameId &fid, int browserBgMode = 0)
+      : IconRenderer(getId(path, fid, iconSize, browserBgMode), iconSize)
       , m_path(path)
-      , m_fid(fid) {}
+      , m_fid(fid)
+      , m_browserBgMode(browserBgMode) {}
 
   static std::string getId(const TFilePath &path, const TFrameId &fid,
-                           const TDimension &iconSize = TDimension(80, 60));
+                           const TDimension &iconSize = TDimension(80, 60),
+                           int browserBgMode = 0);
 
   void run() override;
 };
@@ -1026,15 +1041,18 @@ public:
 //-----------------------------------------------------------------------------
 
 std::string FileIconRenderer::getId(const TFilePath &path, const TFrameId &fid,
-                                    const TDimension &iconSize) {
+                                    const TDimension &iconSize,
+                                    int browserBgMode) {
   std::string type(path.getType());
   std::string id;
 
-  auto withSizeSuffix = [&iconSize](std::string base) {
+  auto withSizeSuffix = [&iconSize, browserBgMode](std::string base) {
     // Type icons are re-rendered at iconSize — must not share the 80x60 cache.
     if (iconSize.lx != 80 || iconSize.ly != 60)
       base += "_r_" + std::to_string(iconSize.lx) + "x" +
               std::to_string(iconSize.ly);
+    if (browserBgMode != 0)
+      base += "_bg" + std::to_string(browserBgMode);
     return base;
   };
 
@@ -1088,7 +1106,8 @@ std::string FileIconRenderer::getId(const TFilePath &path, const TFrameId &fid,
 
 TRaster32P IconGenerator::generateVectorFileIcon(const TFilePath &path,
                                                  const TDimension &iconSize,
-                                                 const TFrameId &fid) {
+                                                 const TFrameId &fid,
+                                                 const Settings &settings) {
   TLevelReaderP lr(path);
   TLevelP level = lr->loadInfo();
   if (level->begin() == level->end()) return TRaster32P();
@@ -1098,8 +1117,6 @@ TRaster32P IconGenerator::generateVectorFileIcon(const TFilePath &path,
   TVectorImageP vi = img;
   if (!vi) return TRaster32P();
   vi->setPalette(level->getPalette());
-  IconGenerator::Settings settings;
-  settings.m_transparentBg = true;
   VectorImageIconRenderer vir("", iconSize, vi.getPointer(), settings);
   return vir.generateRaster(iconSize);
 }
@@ -1108,7 +1125,8 @@ TRaster32P IconGenerator::generateVectorFileIcon(const TFilePath &path,
 
 TRaster32P IconGenerator::generateRasterFileIcon(const TFilePath &path,
                                                  const TDimension &iconSize,
-                                                 const TFrameId &fid) {
+                                                 const TFrameId &fid,
+                                                 const Settings &settings) {
   TImageP img;
 
   try {
@@ -1162,8 +1180,10 @@ TRaster32P IconGenerator::generateRasterFileIcon(const TFilePath &path,
     else
       dstRaster->fill(TPixel32::Magenta);
     ras32 = TRaster32P(dstRaster->getLx(), dstRaster->getLy());
-    // Keep paint-0 / alpha transparent so File Browser BG modes can composite.
-    ras32->clear();
+    if (settings.m_transparentBg)
+      ras32->clear();
+    else
+      ras32->fill(TPixel32::White);
     TRop::over(ras32, dstRaster);
   }
 
@@ -1194,8 +1214,11 @@ Qt::transparent)
 
   TAffine aff = TScale(sc).place(ras32->getCenterD(), icon->getCenterD());
 
-  // Transparent letterbox / alpha; File Browser composites BG at paint time.
-  icon->fill(TPixel32::Transparent);
+  // Fill letterbox before resample (official File Browser icon pipeline).
+  if (settings.m_transparentBg)
+    icon->clear();
+  else
+    icon->fill(TPixel32::Magenta);
 
   // ClosestPixel is sharp for tiny thumbs; Bilinear looks better for large
   // File Browser / movie ("output") previews when downscaling full frames.
@@ -1232,7 +1255,8 @@ TRaster32P IconGenerator::generateSplineFileIcon(const TFilePath &path,
 
 TRaster32P IconGenerator::generateMeshFileIcon(const TFilePath &path,
                                                const TDimension &iconSize,
-                                               const TFrameId &fid) {
+                                               const TFrameId &fid,
+                                               const Settings &settings) {
   TLevelReaderP lr(path);
   TLevelP level = lr->loadInfo();
   if (level->begin() == level->end()) return TRaster32P();
@@ -1243,8 +1267,6 @@ TRaster32P IconGenerator::generateMeshFileIcon(const TFilePath &path,
   TMeshImageP mi = lr->getFrameReader(frameId)->load();
   if (!mi) return TRaster32P();
 
-  IconGenerator::Settings settings;
-  settings.m_transparentBg = true;
   MeshImageIconRenderer mir("", iconSize, mi.getPointer(), settings);
   return mir.generateRaster(iconSize);
 }
@@ -1297,13 +1319,15 @@ void FileIconRenderer::run() {
   try {
     TRaster32P iconRaster;
     std::string type(m_path.getType());
+    const IconGenerator::Settings settings =
+        browserFileIconSettings(m_browserBgMode);
 
     if (type == "tnz" || type == "tab")
       iconRaster = IconGenerator::generateSceneFileIcon(m_path, iconSize,
                                                         m_fid.getNumber() - 1);
     else if (type == "pli")
-      iconRaster =
-          IconGenerator::generateVectorFileIcon(m_path, iconSize, m_fid);
+      iconRaster = IconGenerator::generateVectorFileIcon(m_path, iconSize, m_fid,
+                                                       settings);
     else if (type == "tpl") {
       setSvgDecoration(QStringLiteral(":Resources/paletteicon.svg"));
       return;
@@ -1326,10 +1350,11 @@ void FileIconRenderer::run() {
       setSvgDecoration(getIconPath("psd_icon"));
       return;
     } else if (type == "mesh")
-      iconRaster = IconGenerator::generateMeshFileIcon(m_path, iconSize, m_fid);
-    else if (TFileType::isViewable(TFileType::getInfo(m_path)) || type == "tlv")
       iconRaster =
-          IconGenerator::generateRasterFileIcon(m_path, iconSize, m_fid);
+          IconGenerator::generateMeshFileIcon(m_path, iconSize, m_fid, settings);
+    else if (TFileType::isViewable(TFileType::getInfo(m_path)) || type == "tlv")
+      iconRaster = IconGenerator::generateRasterFileIcon(m_path, iconSize, m_fid,
+                                                       settings);
     else if (type == "mpath") {
       setSvgDecoration(getIconPath("motionpath_icon"));
       return;
@@ -1812,10 +1837,12 @@ QPixmap IconGenerator::getIcon(const TFilePath &path, const TFrameId &fid) {
 
 QPixmap IconGenerator::getSizedIcon(const TFilePath &path,
                                     const TDimension &dim,
-                                    const TFrameId &fid) {
+                                    const TFrameId &fid,
+                                    int browserBgMode) {
   TDimension fileIconSize =
       (dim.lx > 0 && dim.ly > 0) ? dim : TDimension(80, 60);
-  std::string id = FileIconRenderer::getId(path, fid, fileIconSize);
+  std::string id =
+      FileIconRenderer::getId(path, fid, fileIconSize, browserBgMode);
 
   QPixmap pix;
   // fileIconSize checks high-dpi (devPixRatio > 1.0) cache entries.
@@ -1824,7 +1851,7 @@ QPixmap IconGenerator::getSizedIcon(const TFilePath &path,
     return pix;
   }
 
-  addTask(id, new FileIconRenderer(fileIconSize, path, fid));
+  addTask(id, new FileIconRenderer(fileIconSize, path, fid, browserBgMode));
 
   return QPixmap();
 }
@@ -1833,10 +1860,12 @@ QPixmap IconGenerator::getSizedIcon(const TFilePath &path,
 
 QPixmap IconGenerator::peekSizedIcon(const TFilePath &path,
                                      const TDimension &dim,
-                                     const TFrameId &fid) {
+                                     const TFrameId &fid,
+                                     int browserBgMode) {
   TDimension fileIconSize =
       (dim.lx > 0 && dim.ly > 0) ? dim : TDimension(80, 60);
-  std::string id = FileIconRenderer::getId(path, fid, fileIconSize);
+  std::string id =
+      FileIconRenderer::getId(path, fid, fileIconSize, browserBgMode);
   QPixmap pix;
   if (::getIcon(id, pix, 0, fileIconSize) && !pix.isNull()) return pix;
   return QPixmap();
@@ -1873,9 +1902,19 @@ void IconGenerator::purgeResponsiveFileIconsExcept(const TDimension &keepA,
   std::vector<std::string> toRemove;
   for (const std::string &id : iconsMap) {
     if (id.size() < 4 || id.compare(0, 2, "$:") != 0) continue;
-    const size_t pos = id.rfind("_r_");
-    if (pos == std::string::npos) continue;
-    const std::string suf = id.substr(pos);
+    const size_t rPos  = id.rfind("_r_");
+    const bool hasBg   = id.find("_bg") != std::string::npos;
+    if (rPos == std::string::npos && !hasBg) continue;
+
+    if (keep1.empty() && keep2.empty()) {
+      toRemove.push_back(id);
+      continue;
+    }
+
+    if (rPos == std::string::npos) continue;
+    std::string suf = id.substr(rPos);
+    const size_t bgInSuf = suf.find("_bg");
+    if (bgInSuf != std::string::npos) suf = suf.substr(0, bgInSuf);
     if (!keep1.empty() && suf == keep1) continue;
     if (!keep2.empty() && suf == keep2) continue;
     toRemove.push_back(id);
