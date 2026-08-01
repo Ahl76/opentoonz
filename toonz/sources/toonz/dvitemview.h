@@ -6,6 +6,7 @@
 // TnzQt includes
 #include "toonzqt/selection.h"
 #include "toonzqt/lineedit.h"
+#include "toonzqt/intfield.h"
 
 // TnzCore includes
 #include "tfilepath.h"
@@ -14,6 +15,8 @@
 #include <QWidget>
 #include <QScrollArea>
 #include <QToolBar>
+#include <QList>
+#include <QStringList>
 
 // STD includes
 #include <set>
@@ -25,6 +28,10 @@
 class DvItemViewer;
 class DvItemSelection;
 class QMimeData;
+class QSlider;
+class QToolButton;
+class QActionGroup;
+class QTimer;
 
 //==============================================================
 
@@ -112,14 +119,16 @@ class ItemViewPlayWidget final : public QWidget {
     std::vector<TFrameId> m_fids;
     int m_currentFidIndex;
     QPixmap m_pixmap;
-    QSize m_iconSize;
+    QSize m_iconSize;    //!< Layout / paint cell size
+    QSize m_renderSize;  //!< Native HD IconGenerator size (debounced)
 
   public:
     PlayManager();
     ~PlayManager() {}
 
     void reset();
-    void setInfo(DvItemListModel *model, int index);
+    void setInfo(DvItemListModel *model, int index, const QSize &layoutSize,
+                 const QSize &renderSize);
     /*! Increase current frame if icon is computed; return true if frame is
      * increased. */
     bool increaseCurrentFrame();
@@ -127,9 +136,14 @@ class ItemViewPlayWidget final : public QWidget {
     bool getCurrentFrame();
     /*! Return true if current frame index is less than fids size. */
     bool isFrameIndexInRange();
+    //! Reset playhead to the first frame (for loop).
+    bool restartFromBeginning();
     bool setCurrentFrameIndexFromXValue(int xValue, int length);
     double currentFrameIndexToXValue(int length);
     QPixmap getCurrentPixmap();
+
+  private:
+    QPixmap fetchFramePixmap(const TFrameId &fid, bool useCachedFirst);
   };
 
   PlayManager *m_playManager;
@@ -141,6 +155,8 @@ public:
   void play();
   void stop();
   void clear();
+  //! Restart the play timer using the panel's current FPS (no-op if idle).
+  void refreshPlayInterval();
 
   void setIsPlaying(DvItemListModel *model, int index);
   void setIsPlayingCurrentFrameIndex(DvItemListModel *model, int index,
@@ -171,6 +187,12 @@ public:
   void paint(QPainter *painter, QRect rect, int index);
 
   bool setPlayWidget(DvItemListModel *model, int index, QRect rect, QPoint pos);
+  bool isIndexPlaying(int index) const {
+    return m_itemViewPlay && m_itemViewPlay->isIndexPlaying(index);
+  }
+  void refreshPlayInterval() {
+    if (m_itemViewPlay) m_itemViewPlay->refreshPlayInterval();
+  }
 
 public slots:
 
@@ -238,6 +260,21 @@ class DvItemViewerPanel final : public QFrame, public TSelection::View {
 
 public:
   enum ViewType { ListView = 0, TableView, ThumbnailView };
+  enum ThumbnailBgMode {
+    BgTransparent = 0,
+    BgWhite,
+    BgBlack,
+    BgCheckered
+  };
+  enum ThumbnailSizePreset {
+    SizeList = 0,
+    SizeSmall,
+    SizeMedium,
+    SizeLarge,
+    SizeExtraLarge,
+    SizeHuge
+  };
+
   void setAlternateBackground(const QColor &color) {
     m_alternateBackground = color;
   }
@@ -256,7 +293,22 @@ public:
   QColor getSelectedItemBackground() const { return m_selectedItemBackground; }
 
   // exposed view parameters
-  void setIconSize(QSize size) { m_iconSize = size; }
+  void setIconSize(QSize size);
+  QSize getRenderIconSize() const { return m_renderIconSize; }
+  //! Previous committed HD size — used to soft-scale while the new size generates.
+  QSize getPrevRenderIconSize() const { return m_prevRenderIconSize; }
+  ThumbnailBgMode getThumbnailBgMode() const { return m_thumbnailBgMode; }
+  void setThumbnailBgMode(ThumbnailBgMode mode);
+  bool isAdvancedDisplay() const { return m_advancedDisplay; }
+  void setAdvancedDisplay(bool on);
+  void applyThumbnailSizePreset(ThumbnailSizePreset preset);
+  void setThumbnailWidth(int width);
+
+  //! Browser thumbnail play speed (default 10 = legacy startTimer(100)).
+  int getPlayFps() const { return m_playFps; }
+  void setPlayFps(int fps);
+  bool isPlayLoop() const { return m_playLoop; }
+  void setPlayLoop(bool loop);
 
 private:
   ViewType to_enum(int n) {
@@ -290,10 +342,21 @@ private:
   int m_itemSpacing;
   int m_xMargin, m_yMargin, m_itemPerRow;
   QSize m_itemSize;
-  QSize m_iconSize;
+  QSize m_iconSize;            //!< Layout cell size (updates immediately)
+  QSize m_renderIconSize;      //!< Native IconGenerator size (debounced)
+  QSize m_prevRenderIconSize;  //!< Last HD size kept while regenerating
   bool m_noContextMenu;
+  bool m_advancedDisplay;
+  ThumbnailBgMode m_thumbnailBgMode;
+  int m_playFps;    //!< Thumbnail play FPS (default 10 → 100 ms interval)
+  bool m_playLoop;  //!< Repeat thumbnail play when sequence ends
+  QTimer *m_renderSizeTimer;
   void updateViewParameters(int panelWidth);
   void updateViewParameters() { updateViewParameters(width()); }
+  void scheduleRenderSizeCommit();
+  void fillThumbnailBackground(QPainter &p, const QRect &iconRect) const;
+  static QSize sizeFromWidth(int width);
+  static QSize quantizeRenderSize(const QSize &layout);
   QPoint m_startDragPosition;
   QPoint m_lastMousePos;
   int m_currentIndex;
@@ -367,6 +430,11 @@ protected:
 
 signals:
   void viewTypeChange(DvItemViewerPanel::ViewType viewType);
+  void advancedDisplayChanged(bool on);
+  void thumbnailBgModeChanged(int mode);
+  void thumbnailSizeChanged(const QSize &size);
+  void playFpsChanged(int fps);
+  void playLoopChanged(bool loop);
 
 public slots:
   void setListView();
@@ -375,6 +443,7 @@ public slots:
   void rename();
   // for exporting the file information to text format file
   void exportFileList();
+  void commitRenderIconSize();
 };
 
 //=============================================================================
@@ -491,18 +560,77 @@ class DvItemViewerButtonBar final : public QToolBar {
   QAction *m_folderBack;
   QAction *m_folderFwd;
 
+  DvItemViewer *m_itemViewer;
+  QAction *m_leftSpacerAct;
+  QAction *m_rightSpacerAct;
+  QAction *m_advancedSep;
+  QAction *m_bgSep;     //!< Between burger and background modes
+  QAction *m_typeSep;   //!< Between background modes and type filters
+  QAction *m_searchSep; //!< Between type filters and FPS/search
+  QAction *m_bgWhiteAct;
+  QAction *m_bgBlackAct;
+  QAction *m_bgTransparentAct;
+  QAction *m_bgCheckeredAct;
+  QAction *m_sizeMenuAct;
+  QAction *m_sizeSliderAct;
+  QAction *m_fpsAct;
+  QAction *m_searchAct;
+  QList<QAction *> m_typeFilterActs;
+  QActionGroup *m_bgGroup;
+  QToolButton *m_sizeMenuBtn;
+  QToolButton *m_fpsBtn;
+  DVGui::IntLineEdit *m_fpsField;
+  QToolButton *m_loopBtn;
+  QSlider *m_sizeSlider;
+  class QLineEdit *m_searchEdit;
+  QAction *m_advancedDisplayAct;
+  unsigned int m_guiPartsFlag;
+  bool m_updatingUi;
+
+  void makeActionIconOnly(QAction *action);
+  void styleAdvancedIconButton(QAction *action);
+  void styleAdvancedIconWidget(QWidget *widget);
+  void uniformAdvancedIconButtons();
+  QStringList selectedTypeExtensions() const;
+  bool isAdvancedDisplayOn() const;
+  void refreshAdvancedControlsVisibility();
+  void addGuiShowHideMenu(QMenu *menu);
+  void updateFpsButtonLabel();
+
 public:
   DvItemViewerButtonBar(DvItemViewer *itemViewer, QWidget *parent = 0);
+
+protected:
+  void contextMenuEvent(QContextMenuEvent *event) override;
+
+private:
+  void buildAdvancedControls();
+  void syncAdvancedControlsFromPanel();
+  void persistAdvancedSettings();
 
 public slots:
   void onHistoryChanged(bool, bool);
   void onPreferenceChanged(const QString &);
+  void onAdvancedDisplayToggled(bool on);
+  void onGuiShowHideTriggered(QAction *action);
+  void onBgModeTriggered(QAction *action);
+  void onSizePresetTriggered(QAction *action);
+  void onSizeSliderChanged(int value);
+  void onPanelThumbnailSizeChanged(const QSize &size);
+  void onSearchTextEdited(const QString &text);
+  void onTypeFilterTriggered(bool checked);
+  void onPlayFpsTriggered(QAction *action);
+  void onPlayFpsFieldEdited();
+  void onPlayLoopToggled(bool on);
 
 signals:
   void folderUp();
   void newFolder();
   void folderBack();
   void folderFwd();
+  void searchFilterChanged(const QString &text);
+  //! Uppercase extensions to show; empty list means all types.
+  void typeFilterChanged(const QStringList &extensions);
 };
 
 #endif  // DV_ITEM_VIEW_INCLUDED
