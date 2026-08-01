@@ -73,6 +73,8 @@
 #include <QTreeWidgetItem>
 #include <QSplitter>
 #include <QFileSystemWatcher>
+#include <QHash>
+#include <QTimer>
 
 // tcg includes
 #include "tcg/boost/range_utility.h"
@@ -84,9 +86,27 @@
 #include <boost/range/adaptor/transformed.hpp>
 
 // C++ includes
+#include <algorithm>
 #include <memory>  // std::unique_ptr, std::make_unique
 
 namespace ba = boost::adaptors;
+
+namespace {
+
+//! Render a theme SVG at \p size (cached). Avoids upscaling a tiny static pixmap.
+QPixmap browserThemeSvgIcon(const QString &iconName, const QSize &size) {
+  static QHash<QString, QPixmap> cache;
+  const QString key = iconName + QLatin1Char('@') + QString::number(size.width()) +
+                      QLatin1Char('x') + QString::number(size.height());
+  const auto it = cache.constFind(key);
+  if (it != cache.cend()) return it.value();
+  QPixmap pm =
+      svgToPixmap(getIconPath(iconName), size, Qt::KeepAspectRatio, Qt::transparent);
+  cache.insert(key, pm);
+  return pm;
+}
+
+}  // namespace
 
 using namespace DVGui;
 
@@ -230,6 +250,10 @@ FileBrowser::FileBrowser(QWidget *parent, Qt::WindowFlags flags,
           &FileBrowser::folderUp);
   connect(buttonBar, &DvItemViewerButtonBar::newFolder, this,
           &FileBrowser::newFolder);
+  connect(buttonBar, &DvItemViewerButtonBar::searchFilterChanged, this,
+          &FileBrowser::onSearchFilterChanged);
+  connect(buttonBar, &DvItemViewerButtonBar::typeFilterChanged, this,
+          &FileBrowser::onTypeFilterChanged);
 
   connect(&m_frameCountReader, &FrameCountReader::calculatedFrameCount,
           m_itemViewer->getPanel(), qOverload<>(&DvItemViewerPanel::update));
@@ -490,6 +514,11 @@ void FileBrowser::sortByDataModel(DataType dataType, bool isDiscendent) {
     setIsDiscendentOrder(isDiscendent);
   }
 
+  // Folders stay pinned at the top — they are never interleaved by the sort.
+  storePersistedSelection();
+  pinFoldersFirst();
+  restorePersistedSelection();
+
   m_itemViewer->getPanel()->update();
 }
 
@@ -651,12 +680,9 @@ void FileBrowser::refreshCurrentFolderItems() {
       }
     }
   }
-  // update the ordering rules
-  bool discendentOrder     = isDiscendentOrder();
-  DataType currentDataType = getCurrentOrderType();
-  setOrderType(Name);
-  setIsDiscendentOrder(true);
-  sortByDataModel(currentDataType, discendentOrder);
+  // Keep the full folder listing, then apply optional name search filter.
+  m_folderItems = m_items;
+  applyNameFilter();
 }
 
 //-----------------------------------------------------------------------------
@@ -761,13 +787,8 @@ void FileBrowser::setUnregisteredFolder(const TFilePath &fp) {
   // paths(m_path)
   refreshData();
 
-  // update the ordering rules
-  bool discendentOrder     = isDiscendentOrder();
-  DataType currentDataType = getCurrentOrderType();
-  setOrderType(Name);
-  setIsDiscendentOrder(true);
-  sortByDataModel(currentDataType, discendentOrder);
-
+  m_folderItems = m_items;
+  applyNameFilter();
   m_itemViewer->repaint();
 }
 
@@ -787,6 +808,8 @@ void FileBrowser::setHistoryDay(std::string dayDateString) {
     for (const TFilePath &it : files) m_items.emplace_back(it);
   }
   refreshData();
+  m_folderItems = m_items;
+  applyNameFilter();
 }
 
 //-----------------------------------------------------------------------------
@@ -879,28 +902,44 @@ QVariant FileBrowser::getItemData(int index, DataType dataType,
     else
       return item.m_name;
   } else if (dataType == Thumbnail) {
-    QSize iconSize = m_itemViewer->getPanel()->getIconSize();
-    // parent folder icons
+    DvItemViewerPanel *panel = m_itemViewer->getPanel();
+    QSize iconSize           = panel->getIconSize();
+    QSize renderSize         = panel->getRenderIconSize();
+    // Folder decorations: re-render SVG at the live cell size (never upscale a
+    // tiny cached pixmap — that was the source of pixelation at large sizes).
     if (item.m_path == m_folder.getParentDir()) {
-      static QPixmap folderUpPixmap(getIconPath("folder_browser_up"));
-      return folderUpPixmap;
-    }
-    // folder icons
-    else if (item.m_isFolder) {
-      if (item.m_isLink) {
-        static QPixmap folderLinkPixmap(getIconPath("folder_browser_link"));
-        return folderLinkPixmap;
-      } else {
-        static QPixmap folderPixmap(getIconPath("folder_browser"));
-        return folderPixmap;
-      }
+      return browserThemeSvgIcon(QStringLiteral("folder_browser_up"), iconSize);
+    } else if (item.m_isFolder) {
+      if (item.m_isLink)
+        return browserThemeSvgIcon(QStringLiteral("folder_browser_link"),
+                                   iconSize);
+      return browserThemeSvgIcon(QStringLiteral("folder_browser"), iconSize);
     }
 
-    QPixmap pixmap = IconGenerator::instance()->getIcon(item.m_path);
+    // Level Strip–style HD cache: request the committed renderSize. While the
+    // new size is still generating, soft-scale the previous HD cache entry
+    // (peek only — never enqueue a second size). Avoids soft 80×60 flash and
+    // duplicate PLI/OfflineGL work during slider commits.
+    QPixmap pixmap;
+    if (panel->isAdvancedDisplay() && renderSize.width() > 0 &&
+        renderSize.height() > 0) {
+      pixmap = IconGenerator::instance()->getSizedIcon(
+          item.m_path, TDimension(renderSize.width(), renderSize.height()));
+      if (pixmap.isNull()) {
+        const QSize prev = panel->getPrevRenderIconSize();
+        if (prev.width() > 0 && prev.height() > 0 && prev != renderSize) {
+          pixmap = IconGenerator::instance()->peekSizedIcon(
+              item.m_path, TDimension(prev.width(), prev.height()));
+        }
+      }
+    }
+    if (pixmap.isNull())
+      pixmap = IconGenerator::instance()->getIcon(item.m_path);
     if (pixmap.isNull()) {
       pixmap = QPixmap(iconSize);
-      pixmap.fill(Qt::white);
+      pixmap.fill(Qt::transparent);
     }
+    if (panel->isAdvancedDisplay()) return pixmap;
     return scalePixmapKeepingAspectRatio(pixmap, iconSize, Qt::transparent);
   } else if (dataType == Icon)
     return QVariant();
@@ -963,7 +1002,167 @@ bool FileBrowser::canRenameItem(int index) const {
 int FileBrowser::findIndexWithPath(TFilePath path) {
   for (int i = 0; i < (int)m_items.size(); ++i)
     if (m_items[i].m_path == path) return i;
+#ifdef _WIN32
+  // Windows paths are case-insensitive; FullPath casing may differ after refresh.
+  const QString target =
+      QString::fromStdWString(path.getWideString()).toLower();
+  for (int i = 0; i < (int)m_items.size(); ++i) {
+    if (QString::fromStdWString(m_items[i].m_path.getWideString()).toLower() ==
+        target)
+      return i;
+  }
+#endif
   return -1;
+}
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::storePersistedSelection() {
+  FileSelection *fs =
+      dynamic_cast<FileSelection *>(m_itemViewer->getPanel()->getSelection());
+  // Keep the last non-empty snapshot (room switch may clear indices before
+  // showEvent runs).
+  if (!fs || fs->isEmpty()) return;
+  // Prefer paths from the live item list (indices are authoritative here).
+  const std::set<int> &indices = fs->getSelectedIndices();
+  std::vector<TFilePath> paths;
+  paths.reserve(indices.size());
+  for (int idx : indices) {
+    if (idx < 0 || idx >= (int)m_items.size()) continue;
+    paths.push_back(m_items[idx].m_path);
+  }
+  if (!paths.empty()) m_persistedSelection.swap(paths);
+}
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::restorePersistedSelection() {
+  if (m_persistedSelection.empty()) return;
+  FileSelection *fs =
+      dynamic_cast<FileSelection *>(m_itemViewer->getPanel()->getSelection());
+  if (!fs) return;
+
+  std::vector<int> indices;
+  indices.reserve(m_persistedSelection.size());
+  for (const TFilePath &fp : m_persistedSelection) {
+    const int idx = findIndexWithPath(fp);
+    if (idx >= 0) indices.push_back(idx);
+  }
+  if (indices.empty()) return;
+  fs->select(&indices.front(), (int)indices.size());
+  fs->makeCurrent();
+  m_itemViewer->getPanel()->update();
+}
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::pinFoldersFirst() {
+  if (m_items.empty()) return;
+
+  Item parent;
+  bool hasParent = false;
+  std::vector<Item> folders, files;
+  folders.reserve(m_items.size());
+  files.reserve(m_items.size());
+
+  for (const Item &item : m_items) {
+    if (!m_folder.isEmpty() && item.m_path == m_folder.getParentDir()) {
+      parent    = item;
+      hasParent = true;
+    } else if (item.m_isFolder) {
+      folders.push_back(item);
+    } else {
+      files.push_back(item);
+    }
+  }
+
+  std::stable_sort(folders.begin(), folders.end(),
+                   [](const Item &a, const Item &b) {
+                     return QString::localeAwareCompare(a.m_name, b.m_name) < 0;
+                   });
+
+  m_items.clear();
+  if (hasParent) m_items.push_back(parent);
+  m_items.insert(m_items.end(), folders.begin(), folders.end());
+  m_items.insert(m_items.end(), files.begin(), files.end());
+}
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::applyNameFilter() {
+  // Keep path snapshot before rebuilding indices (sort remaps by index).
+  storePersistedSelection();
+  if (FileSelection *fs = dynamic_cast<FileSelection *>(
+          m_itemViewer->getPanel()->getSelection()))
+    fs->selectNone();
+
+  m_items.clear();
+  m_items.reserve(m_folderItems.size());
+
+  for (const Item &item : m_folderItems) {
+    const bool isParent =
+        !m_folder.isEmpty() && item.m_path == m_folder.getParentDir();
+    const bool isFolder = isParent || item.m_isFolder;
+
+    const QString name =
+        item.m_name.isEmpty()
+            ? QString::fromStdWString(item.m_path.getLevelNameW())
+            : item.m_name;
+
+    // Parent ".." always stays; other folders honor the name search only.
+    if (isFolder) {
+      if (!isParent && !m_nameFilter.isEmpty() &&
+          !name.contains(m_nameFilter, Qt::CaseInsensitive))
+        continue;
+      m_items.push_back(item);
+      continue;
+    }
+
+    if (!m_typeFilter.isEmpty()) {
+      const QString ext =
+          QString::fromStdString(item.m_path.getType()).toUpper();
+      if (!m_typeFilter.contains(ext)) continue;
+    }
+
+    if (!m_nameFilter.isEmpty() &&
+        !name.contains(m_nameFilter, Qt::CaseInsensitive))
+      continue;
+
+    m_items.push_back(item);
+  }
+
+  bool discendentOrder     = isDiscendentOrder();
+  DataType currentDataType = getCurrentOrderType();
+  setOrderType(Name);
+  setIsDiscendentOrder(true);
+  sortByDataModel(currentDataType, discendentOrder);
+
+  // Re-select by path (indices moved after filter/sort).
+  restorePersistedSelection();
+  if (m_itemViewer) {
+    m_itemViewer->updateContentSize();
+    m_itemViewer->refresh();
+  }
+}
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::onSearchFilterChanged(const QString &text) {
+  m_nameFilter = text.trimmed();
+  if (m_folderItems.empty() && !m_items.empty()) m_folderItems = m_items;
+  applyNameFilter();
+}
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::onTypeFilterChanged(const QStringList &extensions) {
+  m_typeFilter.clear();
+  for (const QString &ext : extensions) {
+    const QString u = ext.trimmed().toUpper();
+    if (!u.isEmpty()) m_typeFilter.insert(u);
+  }
+  if (m_folderItems.empty() && !m_items.empty()) m_folderItems = m_items;
+  applyNameFilter();
 }
 
 //-----------------------------------------------------------------------------
@@ -2050,16 +2249,20 @@ void FileBrowser::onSelectedItems(const std::set<int> &indexes) {
   std::list<std::vector<TFrameId>> frameIDs;
 
   if (indexes.empty()) {
+    m_persistedSelection.clear();
     emit filePathsSelected(filePaths, frameIDs);
     return;
   }
 
   size_t itemsSize = m_items.size();
+  m_persistedSelection.clear();
+  m_persistedSelection.reserve(indexes.size());
   for (int idx : indexes) {
     if (idx < 0 || static_cast<size_t>(idx) >= itemsSize) continue;
 
     filePaths.insert(m_items[idx].m_path);
     frameIDs.push_back(m_items[idx].m_frameIds);
+    m_persistedSelection.push_back(m_items[idx].m_path);
   }
 
   emit filePathsSelected(filePaths, frameIDs);
@@ -2214,12 +2417,21 @@ void FileBrowser::newFolder() {
 
 void FileBrowser::showEvent(QShowEvent *) {
   activeBrowsers.insert(this);
+
+  // Capture selection before force-refresh (also kept in m_persistedSelection
+  // via onSelectedItems / hideEvent).
+  storePersistedSelection();
+
   // refresh
   if (getFolder() != TFilePath())
     setFolder(getFolder(), false, true);
   else if (!getDayDateString().empty())
     setHistoryDay(getDayDateString());
   m_folderTreeView->scrollTo(m_folderTreeView->currentIndex());
+
+  // Defer restore: room switch clears the global selection handle and the
+  // folder refresh remaps indices — run after those settle.
+  QTimer::singleShot(0, this, [this]() { restorePersistedSelection(); });
 
   // Refresh SVN
   DvDirVersionControlNode *vcNode = dynamic_cast<DvDirVersionControlNode *>(
@@ -2230,6 +2442,7 @@ void FileBrowser::showEvent(QShowEvent *) {
 //-----------------------------------------------------------------------------
 
 void FileBrowser::hideEvent(QHideEvent *) {
+  storePersistedSelection();
   activeBrowsers.erase(this);
   m_itemViewer->getPanel()->getItemViewPlayDelegate()->resetPlayWidget();
 }

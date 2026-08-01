@@ -10,6 +10,8 @@
 #include <QCheckBox>
 #include <QList>
 #include <QModelIndex>
+#include <QSet>
+#include <QString>
 
 #include "dvitemview.h"
 #include "tfilepath.h"
@@ -161,6 +163,8 @@ protected slots:
   void onSelectedItems(const std::set<int> &indexes);
   void folderUp();
   void newFolder();
+  void onSearchFilterChanged(const QString &text);
+  void onTypeFilterChanged(const QStringList &extensions);
 
   void onBackButtonPushed();
   void onFwdButtonPushed();
@@ -255,10 +259,22 @@ private:
   QStringList m_filter;
   std::map<TFilePath, Item> m_multiFileItemMap;
 
+  //! Last file/folder selection (by path), kept across room hide/show refresh.
+  std::vector<TFilePath> m_persistedSelection;
+  //! Full folder listing before the advanced-display name/type filters.
+  std::vector<Item> m_folderItems;
+  QString m_nameFilter;
+  //! Uppercase extensions; empty = all file types. Folders always stay visible.
+  QSet<QString> m_typeFilter;
+
 private:
   void readFrameCount(Item &item);
   void readInfo(Item &item);
   void refreshCurrentFolderItems();
+  void storePersistedSelection();
+  void restorePersistedSelection();
+  void applyNameFilter();
+  void pinFoldersFirst();
 
   DvItemListModel::Status getItemVersionControlStatus(const Item &item);
 
