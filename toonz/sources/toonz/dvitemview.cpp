@@ -191,9 +191,10 @@ enum BrowserAdvancedGuiPart {
   AGUI_TypeFilterList  = 0x40,
   AGUI_Favorites       = 0x80,
   AGUI_FavoriteStars   = 0x100,
+  AGUI_ProjectFolders  = 0x200,
   AGUI_All = AGUI_SizeSlider | AGUI_SizeMenu | AGUI_Background | AGUI_TypeFilters |
              AGUI_Search | AGUI_PlayFps | AGUI_TypeFilterList | AGUI_Favorites |
-             AGUI_FavoriteStars,
+             AGUI_FavoriteStars | AGUI_ProjectFolders,
 };
 
 TEnv::IntVar BrowserView("BrowserView", 1);
@@ -2556,6 +2557,8 @@ DvItemViewerButtonBar::DvItemViewerButtonBar(DvItemViewer *itemViewer,
                                          : (int)BrowserAdvancedGuiParts);
   if (m_guiPartsFlag == 0) m_guiPartsFlag = AGUI_All;
   m_guiPartsFlag &= AGUI_All;  // drop legacy per-type filter visibility bits
+  // New part: default on for profiles saved before it existed.
+  m_guiPartsFlag |= AGUI_ProjectFolders;
   if (m_advancedDisplayAct) {
     m_advancedDisplayAct->blockSignals(true);
     m_advancedDisplayAct->setChecked(advanced);
@@ -2677,8 +2680,9 @@ void DvItemViewerButtonBar::refreshAdvancedControlsVisibility() {
   const bool showSearch    = partOn(AGUI_Search) && isBrowser;
   const bool showFavorites = partOn(AGUI_Favorites) && isBrowser;
   const bool showFps       = partOn(AGUI_PlayFps) && isBrowser;
+  const bool showProjectFolders = partOn(AGUI_ProjectFolders) && isBrowser;
   const bool anyPart = showSlider || showMenu || showBg || showTypes || showSearch ||
-                       showFavorites || showFps;
+                       showFavorites || showFps || showProjectFolders;
 
   // Keep the advanced cluster centered (spacers left and right).
   if (m_leftSpacerAct) m_leftSpacerAct->setVisible(anyPart);
@@ -2709,6 +2713,9 @@ void DvItemViewerButtonBar::refreshAdvancedControlsVisibility() {
   if (m_fpsAct) m_fpsAct->setVisible(showFps);
   if (m_fpsGap) m_fpsGap->setVisible(showFps);
   if (m_searchAct) m_searchAct->setVisible(showSearch);
+
+  // Project-folder shortcuts follow Advanced Display + Show/Hide.
+  refreshProjectFolderShortcuts();
 
   if (anyPart) uniformAdvancedIconButtons();
 }
@@ -2757,7 +2764,8 @@ void DvItemViewerButtonBar::setProjectFolderShortcuts(
 
   const bool isBrowser =
       m_itemViewer && m_itemViewer->m_windowType == DvItemViewer::Browser;
-  const bool show = isBrowser && !folders.isEmpty();
+  const bool show = isBrowser && isAdvancedDisplayOn() &&
+                    (m_guiPartsFlag & AGUI_ProjectFolders) && !folders.isEmpty();
 
   clearLayoutWidgets(m_projectFolderHost->layout());
 
@@ -2874,7 +2882,7 @@ void DvItemViewerButtonBar::buildAdvancedControls() {
 
   m_sizeMenuBtn = new QToolButton(this);
   m_sizeMenuBtn->setIcon(createQIcon("menu"));
-  m_sizeMenuBtn->setToolTip(tr("Thumbnail Size"));
+  m_sizeMenuBtn->setToolTip(tr("View Mode"));
   m_sizeMenuBtn->setPopupMode(QToolButton::InstantPopup);
   m_sizeMenuBtn->setAutoRaise(true);
   m_sizeMenuBtn->setFocusPolicy(Qt::NoFocus);
@@ -3191,7 +3199,7 @@ void DvItemViewerButtonBar::addGuiShowHideMenu(QMenu *menu) {
   };
   const PartDef parts[] = {
       {AGUI_SizeSlider, QT_TR_NOOP("Size Slider")},
-      {AGUI_SizeMenu, QT_TR_NOOP("Size Menu")},
+      {AGUI_SizeMenu, QT_TR_NOOP("View Mode")},
       {AGUI_Background, QT_TR_NOOP("Background Modes")},
       {AGUI_TypeFilters, QT_TR_NOOP("Type Filter Icons")},
       {AGUI_TypeFilterList, QT_TR_NOOP("Type Filter List")},
@@ -3199,6 +3207,7 @@ void DvItemViewerButtonBar::addGuiShowHideMenu(QMenu *menu) {
       {AGUI_FavoriteStars, QT_TR_NOOP("Favorite Stars on Thumbnails")},
       {AGUI_PlayFps, QT_TR_NOOP("Playback FPS")},
       {AGUI_Search, QT_TR_NOOP("Search")},
+      {AGUI_ProjectFolders, QT_TR_NOOP("Project Folders")},
   };
 
   QActionGroup *group = new QActionGroup(showHideMenu);
