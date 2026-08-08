@@ -52,7 +52,9 @@ public:
     PlayAvailable,
     VersionControlStatus,
     FileType,
-    IsFolder
+    IsFolder,
+    IsFavorite,
+    ThumbnailBg
   };
 
   enum Status {
@@ -356,7 +358,8 @@ private:
   void updateViewParameters(int panelWidth);
   void updateViewParameters() { updateViewParameters(width()); }
   void scheduleRenderSizeCommit();
-  void fillThumbnailBackground(QPainter &p, const QRect &iconRect) const;
+  void fillThumbnailBackground(QPainter &p, const QRect &iconRect,
+                               ThumbnailBgMode mode) const;
   static QSize sizeFromWidth(int width);
   static QSize quantizeRenderSize(const QSize &layout);
   QPoint m_startDragPosition;
@@ -578,12 +581,14 @@ class DvItemViewerButtonBar final : public QToolBar {
   QAction *m_sizeSliderAct;
   QAction *m_fpsAct;
   QAction *m_typeFilterListAct;
+  QAction *m_favoritesFilterAct;
   QAction *m_searchAct;
   QList<QAction *> m_typeFilterActs;
   QList<QAction *> m_typeFilterMenuActs;
   QActionGroup *m_bgGroup;
   QToolButton *m_sizeMenuBtn;
   QToolButton *m_typeFilterListBtn;
+  QToolButton *m_favoritesFilterBtn;
   QToolButton *m_fpsBtn;
   DVGui::IntLineEdit *m_fpsField;
   QToolButton *m_loopBtn;
@@ -609,6 +614,7 @@ public:
 
 protected:
   void contextMenuEvent(QContextMenuEvent *event) override;
+  bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
   void buildAdvancedControls();
@@ -625,6 +631,7 @@ public slots:
   void onSizeSliderChanged(int value);
   void onPanelThumbnailSizeChanged(const QSize &size);
   void onSearchTextEdited(const QString &text);
+  void onFavoritesFilterToggled(bool on);
   void onTypeFilterTriggered(bool checked);
   void onTypeFilterMenuTriggered(bool checked);
   void onPlayFpsTriggered(QAction *action);
@@ -637,6 +644,8 @@ signals:
   void folderBack();
   void folderFwd();
   void searchFilterChanged(const QString &text);
+  //! Emitted when the favorites-only filter is toggled.
+  void favoritesFilterChanged(bool on);
   //! Uppercase extensions to show; empty list means all types.
   void typeFilterChanged(const QStringList &extensions);
 };

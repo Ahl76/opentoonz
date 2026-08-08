@@ -31,6 +31,7 @@
 #include "toonz/namebuilder.h"
 #include "toonz/toonzimageutils.h"
 #include "toonz/preferences.h"
+#include "toonz/toonzfolders.h"
 
 // TnzBase includes
 #include "tenv.h"
@@ -75,6 +76,7 @@
 #include <QFileSystemWatcher>
 #include <QHash>
 #include <QTimer>
+#include <QSettings>
 
 // tcg includes
 #include "tcg/boost/range_utility.h"
@@ -107,6 +109,104 @@ QPixmap browserThemeSvgIcon(const QString &iconName, const QSize &size) {
 }
 
 }  // namespace
+
+//=============================================================================
+//    BrowserFileSettings
+//-----------------------------------------------------------------------------
+
+BrowserFileSettings *BrowserFileSettings::instance() {
+  static BrowserFileSettings _instance;
+  return &_instance;
+}
+
+BrowserFileSettings::BrowserFileSettings() {}
+
+void BrowserFileSettings::ensureLoaded() {
+  static bool loaded = false;
+  if (loaded) return;
+  loaded = true;
+  load();
+}
+
+QString BrowserFileSettings::pathKey(const TFilePath &path) {
+  return path.getQString();
+}
+
+void BrowserFileSettings::load() {
+  m_bgOverrides.clear();
+  m_favorites.clear();
+  const TFilePath fp =
+      ToonzFolder::getMyModuleDir() + TFilePath("BrowserFileSettings.ini");
+  QSettings settings(toQString(fp), QSettings::IniFormat);
+  settings.beginGroup(QStringLiteral("ThumbnailBg"));
+  const QStringList paths = settings.childKeys();
+  for (const QString &key : paths) {
+    bool ok    = false;
+    const int v = settings.value(key).toInt(&ok);
+    if (ok) m_bgOverrides.insert(key, v);
+  }
+  settings.endGroup();
+  for (const QVariant &v :
+       settings.value(QStringLiteral("Favorites")).toList())
+    m_favorites.insert(v.toString());
+}
+
+void BrowserFileSettings::save() const {
+  const TFilePath fp =
+      ToonzFolder::getMyModuleDir() + TFilePath("BrowserFileSettings.ini");
+  QSettings settings(toQString(fp), QSettings::IniFormat);
+  settings.remove(QString());
+  settings.beginGroup(QStringLiteral("ThumbnailBg"));
+  for (auto it = m_bgOverrides.constBegin(); it != m_bgOverrides.constEnd();
+       ++it)
+    settings.setValue(it.key(), it.value());
+  settings.endGroup();
+  QStringList favList = m_favorites.values();
+  favList.sort();
+  QList<QVariant> favVar;
+  for (const QString &s : favList) favVar.append(s);
+  settings.setValue(QStringLiteral("Favorites"), favVar);
+}
+
+int BrowserFileSettings::thumbnailBgOverride(const TFilePath &path) const {
+  BrowserFileSettings::instance()->ensureLoaded();
+  const auto it = m_bgOverrides.constFind(pathKey(path));
+  return it == m_bgOverrides.constEnd() ? -1 : it.value();
+}
+
+void BrowserFileSettings::setThumbnailBgOverride(const TFilePath &path,
+                                                 int mode) {
+  ensureLoaded();
+  const QString key = pathKey(path);
+  if (mode < 0)
+    m_bgOverrides.remove(key);
+  else
+    m_bgOverrides.insert(key, mode);
+  save();
+}
+
+void BrowserFileSettings::clearThumbnailBgOverride(const TFilePath &path) {
+  setThumbnailBgOverride(path, -1);
+}
+
+bool BrowserFileSettings::isFavorite(const TFilePath &path) const {
+  BrowserFileSettings::instance()->ensureLoaded();
+  return m_favorites.contains(pathKey(path));
+}
+
+void BrowserFileSettings::setFavorite(const TFilePath &path, bool on) {
+  ensureLoaded();
+  const QString key = pathKey(path);
+  if (on)
+    m_favorites.insert(key);
+  else
+    m_favorites.remove(key);
+  save();
+}
+
+void BrowserFileSettings::toggleFavorite(const TFilePath &path) {
+  setFavorite(path, !isFavorite(path));
+}
 
 using namespace DVGui;
 
@@ -254,6 +354,8 @@ FileBrowser::FileBrowser(QWidget *parent, Qt::WindowFlags flags,
           &FileBrowser::onSearchFilterChanged);
   connect(buttonBar, &DvItemViewerButtonBar::typeFilterChanged, this,
           &FileBrowser::onTypeFilterChanged);
+  connect(buttonBar, &DvItemViewerButtonBar::favoritesFilterChanged, this,
+          &FileBrowser::onFavoritesFilterChanged);
 
   connect(&m_frameCountReader, &FrameCountReader::calculatedFrameCount,
           m_itemViewer->getPanel(), qOverload<>(&DvItemViewerPanel::update));
@@ -921,9 +1023,17 @@ QVariant FileBrowser::getItemData(int index, DataType dataType,
     // (peek only — never enqueue a second size). Avoids soft 80×60 flash and
     // duplicate PLI/OfflineGL work during slider commits.
     QPixmap pixmap;
-    const int bgMode = panel->isAdvancedDisplay()
-                           ? (int)panel->getThumbnailBgMode()
-                           : 0;
+    const int bgMode = [&]() {
+      int mode = panel->isAdvancedDisplay()
+                     ? (int)panel->getThumbnailBgMode()
+                     : 0;
+      if (panel->isAdvancedDisplay() && !item.m_isFolder) {
+        const int ov =
+            BrowserFileSettings::instance()->thumbnailBgOverride(item.m_path);
+        if (ov >= 0) mode = ov;
+      }
+      return mode;
+    }();
     if (panel->isAdvancedDisplay() && renderSize.width() > 0 &&
         renderSize.height() > 0) {
       pixmap = IconGenerator::instance()->getSizedIcon(
@@ -953,6 +1063,16 @@ QVariant FileBrowser::getItemData(int index, DataType dataType,
 
   else if (dataType == IsFolder)
     return item.m_isFolder;
+  else if (dataType == IsFavorite)
+    return !item.m_isFolder &&
+           BrowserFileSettings::instance()->isFavorite(item.m_path);
+  else if (dataType == ThumbnailBg) {
+    if (item.m_isFolder) return QVariant();
+    const int ov =
+        BrowserFileSettings::instance()->thumbnailBgOverride(item.m_path);
+    if (ov >= 0) return ov;
+    return QVariant();
+  }
 
   if (!item.m_validInfo) {
     readInfo(item);
@@ -1133,6 +1253,10 @@ void FileBrowser::applyNameFilter() {
         !name.contains(m_nameFilter, Qt::CaseInsensitive))
       continue;
 
+    if (m_favoritesOnly &&
+        !BrowserFileSettings::instance()->isFavorite(item.m_path))
+      continue;
+
     m_items.push_back(item);
   }
 
@@ -1156,6 +1280,50 @@ void FileBrowser::onSearchFilterChanged(const QString &text) {
   m_nameFilter = text.trimmed();
   if (m_folderItems.empty() && !m_items.empty()) m_folderItems = m_items;
   applyNameFilter();
+}
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::onFavoritesFilterChanged(bool on) {
+  m_favoritesOnly = on;
+  if (m_folderItems.empty() && !m_items.empty()) m_folderItems = m_items;
+  applyNameFilter();
+}
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::setSelectedThumbnailBg(int mode) {
+  FileSelection *fs =
+      dynamic_cast<FileSelection *>(m_itemViewer->getPanel()->getSelection());
+  if (!fs) return;
+  std::vector<TFilePath> files;
+  fs->getSelectedFiles(files);
+  for (const TFilePath &fp : files) {
+    if (!TFileType::isViewable(TFileType::getInfo(fp))) continue;
+    if (mode < 0)
+      BrowserFileSettings::instance()->clearThumbnailBgOverride(fp);
+    else
+      BrowserFileSettings::instance()->setThumbnailBgOverride(fp, mode);
+    IconGenerator::instance()->invalidate(fp);
+  }
+  updateItemViewerPanel();
+}
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::toggleSelectedFavorite() {
+  FileSelection *fs =
+      dynamic_cast<FileSelection *>(m_itemViewer->getPanel()->getSelection());
+  if (!fs) return;
+  std::vector<TFilePath> files;
+  fs->getSelectedFiles(files);
+  for (const TFilePath &fp : files) {
+    if (TFileStatus(fp).isDirectory()) continue;
+    BrowserFileSettings::instance()->toggleFavorite(fp);
+  }
+  if (m_favoritesOnly) applyNameFilter();
+  else
+    updateItemViewerPanel();
 }
 
 //-----------------------------------------------------------------------------
@@ -1385,6 +1553,40 @@ QMenu *FileBrowser::getContextMenu(QWidget *parent, int index) {
       // menu->addAction(cm->getAction(MI_ToonShadedImageToTLV));
     }
     if (areFullcolor) menu->addAction(cm->getAction(MI_SeparateColors));
+
+    DvItemViewerPanel *panel = m_itemViewer->getPanel();
+    if (panel && panel->isAdvancedDisplay()) {
+      menu->addSeparator();
+      QMenu *bgMenu = menu->addMenu(tr("Thumbnail Background"));
+      auto addBgAct = [&](const QString &label, int mode) {
+        QAction *a = bgMenu->addAction(label);
+        connect(a, &QAction::triggered, this, [this, mode]() {
+          setSelectedThumbnailBg(mode);
+        });
+      };
+      addBgAct(tr("Use Default"), -1);
+      bgMenu->addSeparator();
+      addBgAct(tr("White Background"), 1);
+      addBgAct(tr("Black Background"), 2);
+      addBgAct(tr("Transparent Background"), 0);
+      addBgAct(tr("Checkered Background"), 3);
+
+      bool allFav = !files.empty();
+      for (const TFilePath &f : files) {
+        if (TFileStatus(f).isDirectory()) {
+          allFav = false;
+          break;
+        }
+        if (!BrowserFileSettings::instance()->isFavorite(f)) {
+          allFav = false;
+          break;
+        }
+      }
+      QAction *favAct = menu->addAction(
+          allFav ? tr("Remove from Favorites") : tr("Add to Favorites"));
+      connect(favAct, &QAction::triggered, this,
+              &FileBrowser::toggleSelectedFavorite);
+    }
 
     if (!areFullcolor) menu->addSeparator();
   }
@@ -2279,9 +2481,11 @@ void FileBrowser::onClickedItem(int index) {
   if (0 <= index && index < (int)m_items.size()) {
     TFilePath fp = m_items[index].m_path;
     if (m_items[index].m_isFolder) {
-      setFolder(fp, true);
-      QModelIndex idx = m_folderTreeView->currentIndex();
-      if (idx.isValid()) m_folderTreeView->scrollTo(idx);
+      if (!Preferences::instance()->isFileBrowserFolderDoubleClick()) {
+        setFolder(fp, true);
+        QModelIndex idx = m_folderTreeView->currentIndex();
+        if (idx.isValid()) m_folderTreeView->scrollTo(idx);
+      }
     } else
       emit filePathClicked(fp);
   }
@@ -2290,7 +2494,6 @@ void FileBrowser::onClickedItem(int index) {
 //-----------------------------------------------------------------------------
 
 void FileBrowser::onDoubleClickedItem(int index) {
-  // TODO: Avoid duplicate code with onClickedItem().
   if (0 <= index && index < (int)m_items.size()) {
     TFilePath fp = m_items[index].m_path;
     if (m_items[index].m_isFolder) {

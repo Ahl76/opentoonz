@@ -11,6 +11,7 @@
 #include <QList>
 #include <QModelIndex>
 #include <QSet>
+#include <QHash>
 #include <QString>
 
 #include "dvitemview.h"
@@ -25,6 +26,33 @@ class QSplitter;
 class DvDirModelNode;
 class DvDirTreeView;
 class QFileSystemWatcher;
+
+//-----------------------------------------------------------------------------
+
+//! Per-file File Browser metadata (thumbnail bg override, favorites).
+class BrowserFileSettings final {
+public:
+  static BrowserFileSettings *instance();
+
+  //! -1 = use panel default (DvItemViewerPanel::ThumbnailBgMode).
+  int thumbnailBgOverride(const TFilePath &path) const;
+  void setThumbnailBgOverride(const TFilePath &path, int mode);
+  void clearThumbnailBgOverride(const TFilePath &path);
+
+  bool isFavorite(const TFilePath &path) const;
+  void setFavorite(const TFilePath &path, bool on);
+  void toggleFavorite(const TFilePath &path);
+
+private:
+  BrowserFileSettings();
+  void ensureLoaded();
+  void load();
+  void save() const;
+  static QString pathKey(const TFilePath &path);
+
+  QHash<QString, int> m_bgOverrides;
+  QSet<QString> m_favorites;
+};
 
 //-----------------------------------------------------------------------------
 
@@ -165,6 +193,9 @@ protected slots:
   void newFolder();
   void onSearchFilterChanged(const QString &text);
   void onTypeFilterChanged(const QStringList &extensions);
+  void onFavoritesFilterChanged(bool on);
+  void setSelectedThumbnailBg(int mode);
+  void toggleSelectedFavorite();
 
   void onBackButtonPushed();
   void onFwdButtonPushed();
@@ -266,6 +297,7 @@ private:
   QString m_nameFilter;
   //! Uppercase extensions; empty = all file types. Folders always stay visible.
   QSet<QString> m_typeFilter;
+  bool m_favoritesOnly = false;
 
 private:
   void readFrameCount(Item &item);
