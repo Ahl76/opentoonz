@@ -9,6 +9,7 @@
 // TnzCore includes
 #include "tregion.h"
 #include "tvectorimage.h"
+#include "trop.h"
 
 // Qt includes
 #include <QWidget>
@@ -81,6 +82,19 @@ protected slots:
 TFilePath DVAPI duplicate(const TFilePath &levelPath);
 
 void DVAPI premultiply(const TFilePath &levelPath);
+
+bool DVAPI isRescalable(const TFilePath &path);
+
+bool DVAPI getLevelRasterSize(const TFilePath &path, TDimension &size);
+
+void DVAPI rescale(const TFilePath &source, const TFilePath &dest,
+                   const TDimension &targetSize,
+                   TRop::ResampleFilterType filter,
+                   FrameTaskNotifier *frameNotifier,
+                   const TFrameId &from = TFrameId(),
+                   const TFrameId &to     = TFrameId(),
+                   bool removeDotBeforeFrameNumber = false,
+                   bool preserveAspectRatio        = true);
 
 void DVAPI convert(
     const TFilePath &source,  //!< Level path to convert from.

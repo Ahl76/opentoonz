@@ -54,6 +54,7 @@
 #include <boost/iterator/transform_iterator.hpp>
 
 #include <unordered_map>
+#include <algorithm>
 
 //**********************************************************************************
 //    Local namespace  stuff
@@ -587,6 +588,93 @@ static void convertFromVector(const TLevelReaderP &lr, const TLevelWriterP &lw,
     }
     frameNotifier->notifyFrameCompleted(100 * (i + 1) / frames.size());
   }
+}
+
+//-----------------------------------------------------------------------
+
+bool getLevelRasterSize(const TFilePath &path, TDimension &size) {
+  TLevelReaderP lr(path);
+  if (!lr) return false;
+  TLevelP level = lr->loadInfo();
+  if (level && level->getFrameCount() > 0) {
+    const TImageInfo *info = lr->getImageInfo(level->begin()->first);
+    if (!info || info->m_lx <= 0 || info->m_ly <= 0) return false;
+    size = TDimension(info->m_lx, info->m_ly);
+    return true;
+  }
+  const TImageInfo *info = lr->getImageInfo();
+  if (!info || info->m_lx <= 0 || info->m_ly <= 0) return false;
+  size = TDimension(info->m_lx, info->m_ly);
+  return true;
+}
+
+static TAffine makeRescaleAffine(const TDimension &src, const TDimension &target,
+                                 bool preserveAspectRatio) {
+  if (src.lx <= 0 || src.ly <= 0 || target.lx <= 0 || target.ly <= 0)
+    return TAffine();
+  const double sx = (double)target.lx / src.lx;
+  const double sy = (double)target.ly / src.ly;
+  if (preserveAspectRatio) return TScale(std::min(sx, sy));
+  return TScale(sx, sy);
+}
+
+bool isRescalable(const TFilePath &path) {
+  const std::string ext = path.getType();
+  if (ext == "tlv") return true;
+  return TFileType::isFullColor(TFileType::getInfo(path));
+}
+
+void rescale(const TFilePath &source, const TFilePath &dest,
+             const TDimension &targetSize, TRop::ResampleFilterType filter,
+             FrameTaskNotifier *frameNotifier, const TFrameId &from,
+             const TFrameId &to, bool removeDotBeforeFrameNumber,
+             bool preserveAspectRatio) {
+  if (!frameNotifier || targetSize.lx <= 0 || targetSize.ly <= 0) return;
+
+  TDimension srcSize;
+  if (!getLevelRasterSize(source, srcSize)) {
+    frameNotifier->notifyError();
+    return;
+  }
+
+  const TAffine aff =
+      makeRescaleAffine(srcSize, targetSize, preserveAspectRatio);
+  if (aff.isIdentity() && source == dest) return;
+
+  TLevelReaderP lr(source);
+  if (!lr) {
+    frameNotifier->notifyError();
+    return;
+  }
+  TLevelP level = lr->loadInfo();
+
+  std::vector<TFrameId> frames;
+  if (level && level->getFrameCount() > 0)
+    getFrameIds(from, to, level, frames);
+  else
+    frames.push_back(TFrameId());
+
+  if (frames.empty()) {
+    frameNotifier->notifyError();
+    return;
+  }
+
+  TLevelWriterP lw(dest);
+
+  const std::string ext = source.getType();
+  if (ext == "tlv") {
+    if (!level) {
+      frameNotifier->notifyError();
+      return;
+    }
+    convertFromCM(lr, level->getPalette(), lw, frames, aff, filter,
+                  frameNotifier, TPixel::Transparent,
+                  removeDotBeforeFrameNumber);
+  } else {
+    convertFromFullRaster(lr, lw, frames, aff, filter, frameNotifier,
+                          TPixel::Transparent, removeDotBeforeFrameNumber);
+  }
+  frameNotifier->notifyLevelCompleted(dest);
 }
 
 //-----------------------------------------------------------------------
