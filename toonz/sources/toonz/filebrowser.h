@@ -13,6 +13,7 @@
 #include <QSet>
 #include <QHash>
 #include <QString>
+#include <functional>
 
 #include "dvitemview.h"
 #include "tfilepath.h"
@@ -29,12 +30,12 @@ class QFileSystemWatcher;
 
 //-----------------------------------------------------------------------------
 
-//! Per-file File Browser metadata (thumbnail bg override, favorites).
+//! Per-file File Browser settings (thumbnail background, favorites).
 class BrowserFileSettings final {
 public:
   static BrowserFileSettings *instance();
 
-  //! -1 = use panel default (DvItemViewerPanel::ThumbnailBgMode).
+  //! Thumbnail background override; -1 uses the panel default.
   int thumbnailBgOverride(const TFilePath &path) const;
   void setThumbnailBgOverride(const TFilePath &path, int mode);
   void clearThumbnailBgOverride(const TFilePath &path);
@@ -53,6 +54,13 @@ private:
   QHash<QString, int> m_bgOverrides;
   QSet<QString> m_favorites;
 };
+
+class QMenu;
+
+bool supportsBrowserThumbnailCustomization(const TFilePath &path);
+bool supportsBrowserFavorites(const TFilePath &path);
+void appendThumbnailBackgroundMenu(
+    QMenu *parentMenu, const std::function<void(int)> &onModeSelected);
 
 //-----------------------------------------------------------------------------
 
@@ -290,12 +298,9 @@ private:
   QStringList m_filter;
   std::map<TFilePath, Item> m_multiFileItemMap;
 
-  //! Last file/folder selection (by path), kept across room hide/show refresh.
   std::vector<TFilePath> m_persistedSelection;
-  //! Full folder listing before the advanced-display name/type filters.
   std::vector<Item> m_folderItems;
   QString m_nameFilter;
-  //! Uppercase extensions; empty = all file types. Folders always stay visible.
   QSet<QString> m_typeFilter;
   bool m_favoritesOnly = false;
 

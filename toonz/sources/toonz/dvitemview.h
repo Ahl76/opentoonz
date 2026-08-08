@@ -644,9 +644,7 @@ signals:
   void folderBack();
   void folderFwd();
   void searchFilterChanged(const QString &text);
-  //! Emitted when the favorites-only filter is toggled.
   void favoritesFilterChanged(bool on);
-  //! Uppercase extensions to show; empty list means all types.
   void typeFilterChanged(const QStringList &extensions);
 };
 

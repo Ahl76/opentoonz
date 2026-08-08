@@ -249,6 +249,8 @@ private:
 private:
   void readFrameCount(Item &item);
   void readInfo(Item &item);
+  void setSelectedThumbnailBg(int mode);
+  void toggleSelectedFavorite();
 
   void refreshCurrentFolderItems();
   void storePersistedSelection();

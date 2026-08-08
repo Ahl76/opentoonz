@@ -839,9 +839,18 @@ QVariant SceneBrowser::getItemData(int index, DataType dataType,
     }
 
     QPixmap pixmap;
-    const int bgMode = panel->isAdvancedDisplay()
-                           ? (int)panel->getThumbnailBgMode()
-                           : 0;
+    const int bgMode = [&]() {
+      int mode = panel->isAdvancedDisplay()
+                     ? (int)panel->getThumbnailBgMode()
+                     : 0;
+      if (panel->isAdvancedDisplay() &&
+          supportsBrowserThumbnailCustomization(item.m_path)) {
+        const int ov =
+            BrowserFileSettings::instance()->thumbnailBgOverride(item.m_path);
+        if (ov >= 0) mode = ov;
+      }
+      return mode;
+    }();
     if (panel->isAdvancedDisplay() && renderSize.width() > 0 &&
         renderSize.height() > 0) {
       pixmap = IconGenerator::instance()->getSizedIcon(
@@ -871,6 +880,15 @@ QVariant SceneBrowser::getItemData(int index, DataType dataType,
 
   else if (dataType == IsFolder) {
     return item.m_isFolder;
+  } else if (dataType == IsFavorite)
+    return supportsBrowserFavorites(item.m_path) &&
+           BrowserFileSettings::instance()->isFavorite(item.m_path);
+  else if (dataType == ThumbnailBg) {
+    if (!supportsBrowserThumbnailCustomization(item.m_path)) return QVariant();
+    const int ov =
+        BrowserFileSettings::instance()->thumbnailBgOverride(item.m_path);
+    if (ov >= 0) return ov;
+    return QVariant();
   }
 
   if (!item.m_validInfo) {
@@ -1347,6 +1365,43 @@ QMenu *SceneBrowser::getContextMenu(QWidget *parent, int index) {
     menu->addAction(cm->getAction(MI_RefreshTree));
   }
 
+  {
+    bool hasThumbItem = false;
+    bool hasFavItem   = false;
+    for (const TFilePath &f : files) {
+      if (supportsBrowserThumbnailCustomization(f)) hasThumbItem = true;
+      if (supportsBrowserFavorites(f)) hasFavItem = true;
+    }
+    DvItemViewerPanel *panel = m_itemViewer->getPanel();
+    if (panel && panel->isAdvancedDisplay() && (hasThumbItem || hasFavItem)) {
+      menu->addSeparator();
+      if (hasThumbItem) {
+        appendThumbnailBackgroundMenu(menu, [this](int mode) {
+          setSelectedThumbnailBg(mode);
+        });
+      }
+
+      if (hasFavItem) {
+        bool allFav = !files.empty();
+        for (const TFilePath &f : files) {
+          if (!supportsBrowserFavorites(f)) {
+            allFav = false;
+            break;
+          }
+          if (!BrowserFileSettings::instance()->isFavorite(f)) {
+            allFav = false;
+            break;
+          }
+        }
+        QAction *favAct = menu->addAction(
+            createQIcon("star"),
+            allFav ? tr("Remove from Favorites") : tr("Add to Favorites"));
+        connect(favAct, &QAction::triggered, this,
+                &SceneBrowser::toggleSelectedFavorite);
+      }
+    }
+  }
+
   return menu;
 }
 
@@ -1722,6 +1777,40 @@ void doRenameAsToonzLevel(const QString &fullpath) {
 }  // namespace
 
 //-------------------------------------------------------------------------------
+
+void SceneBrowser::setSelectedThumbnailBg(int mode) {
+  FileSelection *fs =
+      dynamic_cast<FileSelection *>(m_itemViewer->getPanel()->getSelection());
+  if (!fs) return;
+  std::vector<TFilePath> files;
+  fs->getSelectedFiles(files);
+  for (const TFilePath &fp : files) {
+    if (!supportsBrowserThumbnailCustomization(fp)) continue;
+    if (mode < 0)
+      BrowserFileSettings::instance()->clearThumbnailBgOverride(fp);
+    else
+      BrowserFileSettings::instance()->setThumbnailBgOverride(fp, mode);
+    IconGenerator::instance()->invalidate(fp);
+  }
+  SceneBrowser::updateItemViewerPanel();
+}
+
+//-----------------------------------------------------------------------------
+
+void SceneBrowser::toggleSelectedFavorite() {
+  FileSelection *fs =
+      dynamic_cast<FileSelection *>(m_itemViewer->getPanel()->getSelection());
+  if (!fs) return;
+  std::vector<TFilePath> files;
+  fs->getSelectedFiles(files);
+  for (const TFilePath &fp : files) {
+    if (!supportsBrowserFavorites(fp)) continue;
+    BrowserFileSettings::instance()->toggleFavorite(fp);
+  }
+  SceneBrowser::updateItemViewerPanel();
+}
+
+//-----------------------------------------------------------------------------
 
 void SceneBrowser::renameAsToonzLevel() {
   std::vector<TFilePath> filePaths;

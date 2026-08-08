@@ -51,8 +51,6 @@
 #include <QGuiApplication>
 #include <QCoreApplication>
 
-#include <algorithm>
-
 #include "toonzqt/colorfield.h"
 #include "pane.h"
 
@@ -2891,6 +2889,19 @@ void DvItemViewerButtonBar::buildAdvancedControls() {
   m_typeFilterListAct = addWidget(m_typeFilterListBtn);
   addIconGap();
 
+  m_favoritesFilterBtn = new QToolButton(this);
+  m_favoritesFilterBtn->setIcon(createQIcon("star"));
+  m_favoritesFilterBtn->setToolTip(tr("Favorites Only"));
+  m_favoritesFilterBtn->setCheckable(true);
+  m_favoritesFilterBtn->setAutoRaise(true);
+  m_favoritesFilterBtn->setFocusPolicy(Qt::NoFocus);
+  m_favoritesFilterBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
+  styleAdvancedIconWidget(m_favoritesFilterBtn);
+  connect(m_favoritesFilterBtn, &QToolButton::toggled, this,
+          &DvItemViewerButtonBar::onFavoritesFilterToggled);
+  m_favoritesFilterAct = addWidget(m_favoritesFilterBtn);
+  addIconGap();
+
   m_fpsBtn = new QToolButton(this);
   m_fpsBtn->setIcon(createQIcon("browser_play_fps"));
   m_fpsBtn->setToolTip(tr("Playback FPS"));
@@ -2946,19 +2957,6 @@ void DvItemViewerButtonBar::buildAdvancedControls() {
   m_fpsAct = addWidget(m_fpsBtn);
   addIconGap();
   updateFpsButtonLabel();
-
-  m_favoritesFilterBtn = new QToolButton(this);
-  m_favoritesFilterBtn->setIcon(createQIcon("star"));
-  m_favoritesFilterBtn->setToolTip(tr("Favorites Only"));
-  m_favoritesFilterBtn->setCheckable(true);
-  m_favoritesFilterBtn->setAutoRaise(true);
-  m_favoritesFilterBtn->setFocusPolicy(Qt::NoFocus);
-  m_favoritesFilterBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
-  styleAdvancedIconWidget(m_favoritesFilterBtn);
-  connect(m_favoritesFilterBtn, &QToolButton::toggled, this,
-          &DvItemViewerButtonBar::onFavoritesFilterToggled);
-  m_favoritesFilterAct = addWidget(m_favoritesFilterBtn);
-  addIconGap();
 
   m_searchEdit = new QLineEdit(this);
   m_searchEdit->setObjectName(QStringLiteral("browserSearchEdit"));

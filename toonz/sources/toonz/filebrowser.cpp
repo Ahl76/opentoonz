@@ -26,7 +26,6 @@
 #include "toonz/toonzscene.h"
 #include "toonz/txshsimplelevel.h"
 #include "toonz/txshsoundlevel.h"
-#include "toonz/tproject.h"
 #include "toonz/txshlevelhandle.h"
 #include "toonz/namebuilder.h"
 #include "toonz/toonzimageutils.h"
@@ -35,7 +34,10 @@
 #include "toonz/toonzfolders.h"
 
 // TnzBase includes
+#include "tfiletype.h"
 #include "tenv.h"
+
+#include <functional>
 
 // TnzCore includes
 #include "tsystem.h"
@@ -54,6 +56,8 @@
 #include <QByteArray>
 #include <QMenu>
 #include <QDateTime>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
 #include <QInputDialog>
 #include <QDesktopServices>
 #include <QDirModel>
@@ -207,6 +211,44 @@ void BrowserFileSettings::setFavorite(const TFilePath &path, bool on) {
 
 void BrowserFileSettings::toggleFavorite(const TFilePath &path) {
   setFavorite(path, !isFavorite(path));
+}
+
+//-----------------------------------------------------------------------------
+
+bool supportsBrowserThumbnailCustomization(const TFilePath &path) {
+  if (TFileStatus(path).isDirectory()) return false;
+  const TFileType::Type type = TFileType::getInfo(path);
+  return TFileType::isViewable(type) || TFileType::isScene(type);
+}
+
+//-----------------------------------------------------------------------------
+
+bool supportsBrowserFavorites(const TFilePath &path) {
+  if (TFileStatus(path).isDirectory()) return false;
+  const TFileType::Type type = TFileType::getInfo(path);
+  return TFileType::isViewable(type) || TFileType::isScene(type) ||
+         TFileType::isLevel(type);
+}
+
+//-----------------------------------------------------------------------------
+
+void appendThumbnailBackgroundMenu(
+    QMenu *parentMenu, const std::function<void(int)> &onModeSelected) {
+  QMenu *bgMenu = parentMenu->addMenu(QObject::tr("Thumbnail Background"));
+  auto addBgAct = [&](const char *iconName, const QString &label, int mode) {
+    QAction *a = iconName ? bgMenu->addAction(createQIcon(iconName), label)
+                          : bgMenu->addAction(label);
+    QObject::connect(a, &QAction::triggered, parentMenu,
+                     [onModeSelected, mode]() { onModeSelected(mode); });
+  };
+  addBgAct(nullptr, QObject::tr("Use Default"), -1);
+  bgMenu->addSeparator();
+  addBgAct("browser_preview_white", QObject::tr("White Background"), 1);
+  addBgAct("browser_preview_black", QObject::tr("Black Background"), 2);
+  addBgAct("browser_preview_transparency",
+           QObject::tr("Transparent Background"), 0);
+  addBgAct("browser_preview_checkboard", QObject::tr("Checkered Background"),
+           3);
 }
 
 using namespace DVGui;
@@ -617,7 +659,7 @@ void FileBrowser::sortByDataModel(DataType dataType, bool isDiscendent) {
     setIsDiscendentOrder(isDiscendent);
   }
 
-  // Folders stay pinned at the top — they are never interleaved by the sort.
+  // Folders stay above files after sorting.
   storePersistedSelection();
   pinFoldersFirst();
   restorePersistedSelection();
@@ -783,7 +825,7 @@ void FileBrowser::refreshCurrentFolderItems() {
       }
     }
   }
-  // Keep the full folder listing, then apply optional name search filter.
+  // Keep the full listing, then apply name/type/favorites filters.
   m_folderItems = m_items;
   applyNameFilter();
 }
@@ -1028,7 +1070,8 @@ QVariant FileBrowser::getItemData(int index, DataType dataType,
       int mode = panel->isAdvancedDisplay()
                      ? (int)panel->getThumbnailBgMode()
                      : 0;
-      if (panel->isAdvancedDisplay() && !item.m_isFolder) {
+      if (panel->isAdvancedDisplay() &&
+          supportsBrowserThumbnailCustomization(item.m_path)) {
         const int ov =
             BrowserFileSettings::instance()->thumbnailBgOverride(item.m_path);
         if (ov >= 0) mode = ov;
@@ -1065,10 +1108,10 @@ QVariant FileBrowser::getItemData(int index, DataType dataType,
   else if (dataType == IsFolder)
     return item.m_isFolder;
   else if (dataType == IsFavorite)
-    return !item.m_isFolder &&
+    return supportsBrowserFavorites(item.m_path) &&
            BrowserFileSettings::instance()->isFavorite(item.m_path);
   else if (dataType == ThumbnailBg) {
-    if (item.m_isFolder) return QVariant();
+    if (!supportsBrowserThumbnailCustomization(item.m_path)) return QVariant();
     const int ov =
         BrowserFileSettings::instance()->thumbnailBgOverride(item.m_path);
     if (ov >= 0) return ov;
@@ -1216,7 +1259,6 @@ void FileBrowser::pinFoldersFirst() {
 //-----------------------------------------------------------------------------
 
 void FileBrowser::applyNameFilter() {
-  // Keep path snapshot before rebuilding indices (sort remaps by index).
   storePersistedSelection();
   if (FileSelection *fs = dynamic_cast<FileSelection *>(
           m_itemViewer->getPanel()->getSelection()))
@@ -1235,7 +1277,7 @@ void FileBrowser::applyNameFilter() {
             ? QString::fromStdWString(item.m_path.getLevelNameW())
             : item.m_name;
 
-    // Parent ".." always stays; other folders honor the name search only.
+    // ".." entry is always shown; other folders follow the name filter.
     if (isFolder) {
       if (!isParent && !m_nameFilter.isEmpty() &&
           !name.contains(m_nameFilter, Qt::CaseInsensitive))
@@ -1267,7 +1309,6 @@ void FileBrowser::applyNameFilter() {
   setIsDiscendentOrder(true);
   sortByDataModel(currentDataType, discendentOrder);
 
-  // Re-select by path (indices moved after filter/sort).
   restorePersistedSelection();
   if (m_itemViewer) {
     m_itemViewer->updateContentSize();
@@ -1300,7 +1341,7 @@ void FileBrowser::setSelectedThumbnailBg(int mode) {
   std::vector<TFilePath> files;
   fs->getSelectedFiles(files);
   for (const TFilePath &fp : files) {
-    if (!TFileType::isViewable(TFileType::getInfo(fp))) continue;
+    if (!supportsBrowserThumbnailCustomization(fp)) continue;
     if (mode < 0)
       BrowserFileSettings::instance()->clearThumbnailBgOverride(fp);
     else
@@ -1319,7 +1360,7 @@ void FileBrowser::toggleSelectedFavorite() {
   std::vector<TFilePath> files;
   fs->getSelectedFiles(files);
   for (const TFilePath &fp : files) {
-    if (TFileStatus(fp).isDirectory()) continue;
+    if (!supportsBrowserFavorites(fp)) continue;
     BrowserFileSettings::instance()->toggleFavorite(fp);
   }
   if (m_favoritesOnly) applyNameFilter();
@@ -1569,42 +1610,9 @@ QMenu *FileBrowser::getContextMenu(QWidget *parent, int index) {
               &FileBrowser::renameAsToonzLevel);
     }
 
-    DvItemViewerPanel *panel = m_itemViewer->getPanel();
-    if (panel && panel->isAdvancedDisplay()) {
-      menu->addSeparator();
-      QMenu *bgMenu = menu->addMenu(tr("Thumbnail Background"));
-      auto addBgAct = [&](const QString &label, int mode) {
-        QAction *a = bgMenu->addAction(label);
-        connect(a, &QAction::triggered, this, [this, mode]() {
-          setSelectedThumbnailBg(mode);
-        });
-      };
-      addBgAct(tr("Use Default"), -1);
-      bgMenu->addSeparator();
-      addBgAct(tr("White Background"), 1);
-      addBgAct(tr("Black Background"), 2);
-      addBgAct(tr("Transparent Background"), 0);
-      addBgAct(tr("Checkered Background"), 3);
-
-      bool allFav = !files.empty();
-      for (const TFilePath &f : files) {
-        if (TFileStatus(f).isDirectory()) {
-          allFav = false;
-          break;
-        }
-        if (!BrowserFileSettings::instance()->isFavorite(f)) {
-          allFav = false;
-          break;
-        }
-      }
-      QAction *favAct = menu->addAction(
-          allFav ? tr("Remove from Favorites") : tr("Add to Favorites"));
-      connect(favAct, &QAction::triggered, this,
-              &FileBrowser::toggleSelectedFavorite);
-    }
-
     if (!areFullcolor) menu->addSeparator();
   }
+
 #ifdef LEVO
 
   if (files.size() == 2 &&
@@ -1803,6 +1811,43 @@ QMenu *FileBrowser::getContextMenu(QWidget *parent, int index) {
   if (!Preferences::instance()->isWatchFileSystemEnabled()) {
     menu->addSeparator();
     menu->addAction(cm->getAction(MI_RefreshTree));
+  }
+
+  {
+    bool hasThumbItem = false;
+    bool hasFavItem   = false;
+    for (const TFilePath &f : files) {
+      if (supportsBrowserThumbnailCustomization(f)) hasThumbItem = true;
+      if (supportsBrowserFavorites(f)) hasFavItem = true;
+    }
+    DvItemViewerPanel *panel = m_itemViewer->getPanel();
+    if (panel && panel->isAdvancedDisplay() && (hasThumbItem || hasFavItem)) {
+      menu->addSeparator();
+      if (hasThumbItem) {
+        appendThumbnailBackgroundMenu(menu.get(), [this](int mode) {
+          setSelectedThumbnailBg(mode);
+        });
+      }
+
+      if (hasFavItem) {
+        bool allFav = !files.empty();
+        for (const TFilePath &f : files) {
+          if (!supportsBrowserFavorites(f)) {
+            allFav = false;
+            break;
+          }
+          if (!BrowserFileSettings::instance()->isFavorite(f)) {
+            allFav = false;
+            break;
+          }
+        }
+        QAction *favAct = menu->addAction(
+            createQIcon("star"),
+            allFav ? tr("Remove from Favorites") : tr("Add to Favorites"));
+        connect(favAct, &QAction::triggered, this,
+                &FileBrowser::toggleSelectedFavorite);
+      }
+    }
   }
 
   return menu.release();
