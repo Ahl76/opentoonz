@@ -30,6 +30,7 @@
 #include "toonz/txshlevelhandle.h"
 #include "toonz/namebuilder.h"
 #include "toonz/toonzimageutils.h"
+#include "toonzqt/imageutils.h"
 #include "toonz/preferences.h"
 #include "toonz/toonzfolders.h"
 
@@ -1548,11 +1549,25 @@ QMenu *FileBrowser::getContextMenu(QWidget *parent, int index) {
         break;
     }
     if (j == (int)files.size()) {
+      bool allRescalable = true;
+      for (const TFilePath &f : files) {
+        if (!ImageUtils::isRescalable(f)) {
+          allRescalable = false;
+          break;
+        }
+      }
+      if (allRescalable && files[0].getType() != "pli")
+        menu->addAction(cm->getAction(MI_RescaleFiles));
       menu->addAction(cm->getAction(MI_ConvertFiles));
-      // iwsw commented out temporarily
-      // menu->addAction(cm->getAction(MI_ToonShadedImageToTLV));
     }
     if (areFullcolor) menu->addAction(cm->getAction(MI_SeparateColors));
+
+    if (files.size() == 1 && files[0].getType() != "tnz") {
+      QAction *action =
+          menu->addAction(QIcon(createQIcon("rename")), tr("Rename"));
+      connect(action, &QAction::triggered, this,
+              &FileBrowser::renameAsToonzLevel);
+    }
 
     DvItemViewerPanel *panel = m_itemViewer->getPanel();
     if (panel && panel->isAdvancedDisplay()) {
@@ -1589,13 +1604,6 @@ QMenu *FileBrowser::getContextMenu(QWidget *parent, int index) {
     }
 
     if (!areFullcolor) menu->addSeparator();
-  }
-  if (files.size() == 1 && files[0].getType() != "tnz") {
-    QAction *action =
-        menu->addAction(QIcon(createQIcon("rename")), tr("Rename"));
-    connect(action, &QAction::triggered, this,
-            &FileBrowser::renameAsToonzLevel);
-    menu->addAction(action);
   }
 #ifdef LEVO
 

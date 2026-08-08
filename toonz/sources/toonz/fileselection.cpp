@@ -4,6 +4,7 @@
 
 // Tnz6 includes
 #include "convertpopup.h"
+#include "rescalepopup.h"
 #include "filebrowser.h"
 #include "filedata.h"
 #include "iocommand.h"
@@ -252,6 +253,7 @@ void FileSelection::enableCommands() {
   enableCommand(this, MI_ShowFolderContents,
                 &FileSelection::showFolderContents);
   enableCommand(this, MI_ConvertFiles, &FileSelection::convertFiles);
+  enableCommand(this, MI_RescaleFiles, &FileSelection::rescaleFiles);
   enableCommand(this, MI_AddToBatchRenderList,
                 &FileSelection::addToBatchRenderList);
   enableCommand(this, MI_AddToBatchCleanupList,
@@ -491,6 +493,30 @@ void FileSelection::convertFiles() {
   }
   popup->setFiles(files);
   popup->exec();  // modal, will block until closed
+}
+
+//------------------------------------------------------------------------
+// Rescale files
+//------------------------------------------------------------------------
+
+void FileSelection::rescaleFiles() {
+  std::vector<TFilePath> files;
+  getSelectedFiles(files);
+  if (files.empty()) return;
+
+  static RescalePopup *popup = nullptr;
+  if (!popup) {
+    popup = new RescalePopup();
+    popup->setAttribute(Qt::WA_DeleteOnClose, false);
+  }
+
+  if (popup->isRunning()) {
+    DVGui::info(QObject::tr(
+        "A rescale task is in progress! Wait until it stops or cancel it."));
+    return;
+  }
+  popup->setFiles(files);
+  popup->exec();
 }
 
 //------------------------------------------------------------------------

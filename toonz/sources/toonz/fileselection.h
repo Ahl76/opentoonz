@@ -44,6 +44,7 @@ public:
   void viewFileInfo();
   void viewFile();
   void convertFiles();
+  void rescaleFiles();
   void premultiplyFiles();
 
   void addToBatchRenderList();
