@@ -5,7 +5,6 @@
 // Tnz6 includes
 #include "menubarcommandids.h"
 #include "tapp.h"
-#include "filebrowser.h"
 
 // TnzQt includes
 #include "toonzqt/icongenerator.h"
@@ -48,7 +47,7 @@
 #include <QWidgetAction>
 #include <QHBoxLayout>
 #include <QApplication>
-#include <QScrollBar>
+#include <cmath>
 #include <QGuiApplication>
 #include <QCoreApplication>
 
@@ -102,18 +101,39 @@ protected:
   }
 };
 
-// Placeholder color pinned to Inactive::Mid (stable across window focus).
+static QColor browserSearchPlaceholderColor(const QPalette &pal) {
+  QColor hint = pal.color(QPalette::Active, QPalette::PlaceholderText);
+  if (hint.isValid() && hint.alpha() > 0) return hint;
+
+  const QColor text = pal.color(QPalette::Active, QPalette::Text);
+  const QColor base = pal.color(QPalette::Active, QPalette::Base);
+  if (!text.isValid() || !base.isValid())
+    return pal.color(QPalette::Active, QPalette::Mid);
+
+  const int wt = 11, wb = 14, sum = wt + wb;
+  return QColor((text.red() * wt + base.red() * wb) / sum,
+                (text.green() * wt + base.green() * wb) / sum,
+                (text.blue() * wt + base.blue() * wb) / sum);
+}
+
 void applyBrowserSearchPlaceholderStyle(QLineEdit *edit) {
   if (!edit) return;
-  const QPalette pal = edit->palette();
-  QColor hint = pal.color(QPalette::Inactive, QPalette::Mid);
-  if (!hint.isValid() || hint.alpha() == 0)
-    hint = pal.color(QPalette::Inactive, QPalette::WindowText);
-  if (!hint.isValid() || hint.alpha() == 0)
-    hint = pal.color(QPalette::Inactive, QPalette::Text);
-  edit->setStyleSheet(
-      QStringLiteral("QLineEdit::placeholder { color: %1; }")
-          .arg(hint.name(QColor::HexRgb)));
+  static bool inApply = false;
+  if (inApply) return;
+  inApply = true;
+
+  const QColor hint = browserSearchPlaceholderColor(edit->palette());
+  if (hint.isValid()) {
+    const QString rule = edit->objectName().isEmpty()
+                             ? QStringLiteral("QLineEdit::placeholder")
+                             : QStringLiteral("#%1::placeholder")
+                                   .arg(edit->objectName());
+    const QString sheet = QStringLiteral("%1 { color: %2; }")
+                              .arg(rule, hint.name(QColor::HexRgb));
+    if (edit->styleSheet() != sheet) edit->setStyleSheet(sheet);
+  }
+
+  inApply = false;
 }
 
 }  // namespace
@@ -127,8 +147,11 @@ enum BrowserAdvancedGuiPart {
   AGUI_Search          = 0x10,
   AGUI_PlayFps         = 0x20,
   AGUI_TypeFilterList  = 0x40,
+  AGUI_Favorites       = 0x80,
+  AGUI_FavoriteStars   = 0x100,
   AGUI_All = AGUI_SizeSlider | AGUI_SizeMenu | AGUI_Background | AGUI_TypeFilters |
-             AGUI_Search | AGUI_PlayFps | AGUI_TypeFilterList,
+             AGUI_Search | AGUI_PlayFps | AGUI_TypeFilterList | AGUI_Favorites |
+             AGUI_FavoriteStars,
 };
 
 TEnv::IntVar BrowserView("BrowserView", 1);
@@ -152,6 +175,30 @@ TEnv::IntVar BrowserModifiedDateisVisible("BrowserModifiedDateisVisible", 1);
 TEnv::IntVar BrowserFileTypeisVisible("BrowserFileTypeisVisible", 1);
 TEnv::IntVar BrowserVersionControlStatusisVisible(
     "BrowserVersionControlStatusisVisible", 1);
+
+namespace {
+
+bool browserFavoriteStarsVisible() {
+  return (BrowserAdvancedGuiParts & AGUI_FavoriteStars) != 0;
+}
+
+void drawFavoriteStar(QPainter &p, const QRect &rect) {
+  const qreal cx = rect.center().x();
+  const qreal cy = rect.center().y();
+  const qreal r  = qMin(rect.width(), rect.height()) * 0.5;
+  QPolygonF star;
+  star.reserve(10);
+  for (int i = 0; i < 10; ++i) {
+    const qreal angle  = M_PI * i / 5.0 - M_PI_2;
+    const qreal radius = (i % 2 == 0) ? r : r * 0.42;
+    star << QPointF(cx + radius * std::cos(angle), cy + radius * std::sin(angle));
+  }
+  p.setPen(Qt::NoPen);
+  p.setBrush(QColor(255, 190, 0));
+  p.drawPolygon(star);
+}
+
+}  // namespace
 
 //************************************************************************
 //    Local namespace  stuff
@@ -1159,9 +1206,10 @@ void DvItemViewerPanel::commitRenderIconSize() {
 //-----------------------------------------------------------------------------
 
 void DvItemViewerPanel::fillThumbnailBackground(QPainter &p,
-                                                const QRect &iconRect) const {
+                                                const QRect &iconRect,
+                                                ThumbnailBgMode mode) const {
   if (!m_advancedDisplay) return;
-  switch (m_thumbnailBgMode) {
+  switch (mode) {
   case BgWhite:
     p.fillRect(iconRect, Qt::white);
     break;
@@ -1481,7 +1529,13 @@ void DvItemViewerPanel::paintThumbnailItem(QPainter &p, int index) {
   // transparent / checkered). Folders keep the default transparent panel BG.
   const bool isFolder =
       getModel()->getItemData(index, DvItemListModel::IsFolder).toBool();
-  if (!isFolder) fillThumbnailBackground(p, iconRect);
+  ThumbnailBgMode thumbBg = m_thumbnailBgMode;
+  if (!isFolder) {
+    const QVariant bg =
+        getModel()->getItemData(index, DvItemListModel::ThumbnailBg);
+    if (bg.isValid()) thumbBg = (ThumbnailBgMode)bg.toInt();
+  }
+  if (!isFolder) fillThumbnailBackground(p, iconRect, thumbBg);
 
   // While a level/scene/output is playing, skip the static thumbnail — otherwise
   // it shows through transparent / letterboxed animation frames (ghost image).
@@ -1526,6 +1580,15 @@ void DvItemViewerPanel::paintThumbnailItem(QPainter &p, int index) {
                        rect.top(), missingPixmap.width(),
                        missingPixmap.height());
       p.drawPixmap(pixmapRect.topLeft(), missingPixmap);
+    }
+  }
+
+  if (m_advancedDisplay && !isFolder && browserFavoriteStarsVisible()) {
+    const bool isFav =
+        getModel()->getItemData(index, DvItemListModel::IsFavorite).toBool();
+    if (isFav) {
+      const QRect starRect(iconRect.right() - 13, iconRect.top() + 1, 12, 12);
+      drawFavoriteStar(p, starRect);
     }
   }
 
@@ -2330,10 +2393,12 @@ DvItemViewerButtonBar::DvItemViewerButtonBar(DvItemViewer *itemViewer,
     , m_sizeSliderAct(nullptr)
     , m_fpsAct(nullptr)
     , m_typeFilterListAct(nullptr)
+    , m_favoritesFilterAct(nullptr)
     , m_searchAct(nullptr)
     , m_bgGroup(nullptr)
     , m_sizeMenuBtn(nullptr)
     , m_typeFilterListBtn(nullptr)
+    , m_favoritesFilterBtn(nullptr)
     , m_fpsBtn(nullptr)
     , m_fpsField(nullptr)
     , m_loopBtn(nullptr)
@@ -2472,6 +2537,9 @@ void DvItemViewerButtonBar::onHistoryChanged(bool backEnable, bool fwdEnable) {
 //-----------------------------------------------------------------------------
 
 void DvItemViewerButtonBar::onPreferenceChanged(const QString &prefName) {
+  if (prefName == "CurrentStyleSheetName" && m_searchEdit)
+    applyBrowserSearchPlaceholderStyle(m_searchEdit);
+
   // react only when the related preference is changed
   if (prefName != "WatchFileSystem") return;
 
@@ -2562,9 +2630,10 @@ void DvItemViewerButtonBar::refreshAdvancedControlsVisibility() {
   const bool showTypeList  = partOn(AGUI_TypeFilterList) && isBrowser;
   const bool showTypes     = showTypeIcons || showTypeList;
   const bool showSearch    = partOn(AGUI_Search) && isBrowser;
+  const bool showFavorites = partOn(AGUI_Favorites) && isBrowser;
   const bool showFps       = partOn(AGUI_PlayFps) && isBrowser;
   const bool anyPart = showSlider || showMenu || showBg || showTypes || showSearch ||
-                       showFps;
+                       showFavorites || showFps;
 
   // Center the advanced cluster (spacers left and right).
   if (m_leftSpacerAct) m_leftSpacerAct->setVisible(anyPart);
@@ -2582,7 +2651,9 @@ void DvItemViewerButtonBar::refreshAdvancedControlsVisibility() {
   for (QAction *act : m_typeFilterActs) act->setVisible(showTypeIcons);
   if (m_typeFilterListAct) m_typeFilterListAct->setVisible(showTypeList);
   if (m_searchSep)
-    m_searchSep->setVisible(showTypeIcons && (showTypeList || showFps || showSearch));
+    m_searchSep->setVisible(showTypeIcons &&
+                            (showTypeList || showFavorites || showFps || showSearch));
+  if (m_favoritesFilterAct) m_favoritesFilterAct->setVisible(showFavorites);
   if (m_fpsAct) m_fpsAct->setVisible(showFps);
   if (m_searchAct) m_searchAct->setVisible(showSearch);
 
@@ -2876,6 +2947,19 @@ void DvItemViewerButtonBar::buildAdvancedControls() {
   addIconGap();
   updateFpsButtonLabel();
 
+  m_favoritesFilterBtn = new QToolButton(this);
+  m_favoritesFilterBtn->setIcon(createQIcon("star"));
+  m_favoritesFilterBtn->setToolTip(tr("Favorites Only"));
+  m_favoritesFilterBtn->setCheckable(true);
+  m_favoritesFilterBtn->setAutoRaise(true);
+  m_favoritesFilterBtn->setFocusPolicy(Qt::NoFocus);
+  m_favoritesFilterBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
+  styleAdvancedIconWidget(m_favoritesFilterBtn);
+  connect(m_favoritesFilterBtn, &QToolButton::toggled, this,
+          &DvItemViewerButtonBar::onFavoritesFilterToggled);
+  m_favoritesFilterAct = addWidget(m_favoritesFilterBtn);
+  addIconGap();
+
   m_searchEdit = new QLineEdit(this);
   m_searchEdit->setObjectName(QStringLiteral("browserSearchEdit"));
   m_searchEdit->setPlaceholderText(tr("Search…"));
@@ -2893,6 +2977,7 @@ void DvItemViewerButtonBar::buildAdvancedControls() {
   }
 #endif
   m_searchAct = addWidget(m_searchEdit);
+  m_searchEdit->installEventFilter(this);
   connect(m_searchEdit, &QLineEdit::textChanged, this,
           &DvItemViewerButtonBar::onSearchTextEdited);
 
@@ -2974,6 +3059,8 @@ void DvItemViewerButtonBar::addGuiShowHideMenu(QMenu *menu) {
       {AGUI_Background, QT_TR_NOOP("Background Modes")},
       {AGUI_TypeFilters, QT_TR_NOOP("Type Filter Icons")},
       {AGUI_TypeFilterList, QT_TR_NOOP("Type Filter List")},
+      {AGUI_Favorites, QT_TR_NOOP("Favorites Filter")},
+      {AGUI_FavoriteStars, QT_TR_NOOP("Favorite Stars on Thumbnails")},
       {AGUI_PlayFps, QT_TR_NOOP("Playback FPS")},
       {AGUI_Search, QT_TR_NOOP("Search")},
   };
@@ -3055,6 +3142,15 @@ void DvItemViewerButtonBar::contextMenuEvent(QContextMenuEvent *event) {
 
 //-----------------------------------------------------------------------------
 
+bool DvItemViewerButtonBar::eventFilter(QObject *watched, QEvent *event) {
+  if (watched == m_searchEdit && m_searchEdit &&
+      event->type() == QEvent::PaletteChange)
+    applyBrowserSearchPlaceholderStyle(m_searchEdit);
+  return QToolBar::eventFilter(watched, event);
+}
+
+//-----------------------------------------------------------------------------
+
 void DvItemViewerButtonBar::onAdvancedDisplayToggled(bool on) {
   if (!m_itemViewer) return;
   DvItemViewerPanel *panel = m_itemViewer->getPanel();
@@ -3089,6 +3185,8 @@ void DvItemViewerButtonBar::onGuiShowHideTriggered(QAction *action) {
     m_guiPartsFlag &= ~part;
   refreshAdvancedControlsVisibility();
   persistAdvancedSettings();
+  if (part == AGUI_FavoriteStars && m_itemViewer && m_itemViewer->getPanel())
+    m_itemViewer->getPanel()->update();
 }
 
 //-----------------------------------------------------------------------------
@@ -3186,6 +3284,12 @@ void DvItemViewerButtonBar::onPanelThumbnailSizeChanged(const QSize &size) {
 
 void DvItemViewerButtonBar::onSearchTextEdited(const QString &text) {
   emit searchFilterChanged(text);
+}
+
+//-----------------------------------------------------------------------------
+
+void DvItemViewerButtonBar::onFavoritesFilterToggled(bool on) {
+  emit favoritesFilterChanged(on);
 }
 
 //-----------------------------------------------------------------------------
