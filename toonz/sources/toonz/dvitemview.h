@@ -571,7 +571,7 @@ class DvItemViewerButtonBar final : public QToolBar {
   QAction *m_leftSpacerAct;
   QAction *m_rightSpacerAct;
   QAction *m_advancedSep;
-  QAction *m_bgSep;     //!< Between burger and background modes
+  QAction *m_bgSep;
   QAction *m_typeSep;       //!< Between background modes and type filters
   QAction *m_typeLevelSep;  //!< Between level types and asset types
   QAction *m_searchSep;     //!< Between asset types and list/FPS/search
@@ -589,6 +589,10 @@ class DvItemViewerButtonBar final : public QToolBar {
   QAction *m_projectFolderHostAct;
   QList<QAction *> m_typeFilterActs;
   QList<QAction *> m_typeFilterMenuActs;
+  QList<QAction *> m_typeFilterIconGaps;
+  QAction *m_typeFilterListGap = nullptr;
+  QAction *m_favoritesFilterGap = nullptr;
+  QAction *m_fpsGap = nullptr;
   QActionGroup *m_bgGroup;
   QToolButton *m_sizeMenuBtn;
   QToolButton *m_typeFilterListBtn;

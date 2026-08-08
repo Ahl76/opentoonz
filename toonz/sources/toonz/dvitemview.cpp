@@ -2675,7 +2675,7 @@ void DvItemViewerButtonBar::refreshAdvancedControlsVisibility() {
   const bool anyPart = showSlider || showMenu || showBg || showTypes || showSearch ||
                        showFavorites || showFps;
 
-  // Center the advanced cluster (spacers left and right).
+  // Keep the advanced cluster centered (spacers left and right).
   if (m_leftSpacerAct) m_leftSpacerAct->setVisible(anyPart);
   if (m_rightSpacerAct) m_rightSpacerAct->setVisible(anyPart);
   if (m_advancedSep) m_advancedSep->setVisible(anyPart);
@@ -2689,12 +2689,20 @@ void DvItemViewerButtonBar::refreshAdvancedControlsVisibility() {
   if (m_typeSep) m_typeSep->setVisible(showBg && showTypes);
   if (m_typeLevelSep) m_typeLevelSep->setVisible(showTypeIcons);
   for (QAction *act : m_typeFilterActs) act->setVisible(showTypeIcons);
+  // QToolBar: must hide via QAction, not QWidget::setVisible.
+  for (QAction *gap : m_typeFilterIconGaps) {
+    if (gap) gap->setVisible(showTypeIcons);
+  }
   if (m_typeFilterListAct) m_typeFilterListAct->setVisible(showTypeList);
+  if (m_typeFilterListGap) m_typeFilterListGap->setVisible(showTypeList);
+  const bool showAfterTypes =
+      showTypeList || showFavorites || showFps || showSearch;
   if (m_searchSep)
-    m_searchSep->setVisible(showTypeIcons &&
-                            (showTypeList || showFavorites || showFps || showSearch));
+    m_searchSep->setVisible(showTypeIcons && showAfterTypes);
   if (m_favoritesFilterAct) m_favoritesFilterAct->setVisible(showFavorites);
+  if (m_favoritesFilterGap) m_favoritesFilterGap->setVisible(showFavorites);
   if (m_fpsAct) m_fpsAct->setVisible(showFps);
+  if (m_fpsGap) m_fpsGap->setVisible(showFps);
   if (m_searchAct) m_searchAct->setVisible(showSearch);
 
   if (anyPart) uniformAdvancedIconButtons();
@@ -2790,11 +2798,12 @@ void DvItemViewerButtonBar::buildAdvancedControls() {
     lay->addWidget(line, 0, Qt::AlignVCenter);
     return addWidget(wrap);
   };
-  auto addIconGap = [this]() {
+  // Store the QAction: QToolBar ignores QWidget::setVisible on addWidget items.
+  auto addIconGap = [this]() -> QAction * {
     QWidget *gap = new QWidget(this);
     gap->setFixedWidth(kBrowserIconGap);
     gap->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
-    addWidget(gap);
+    return addWidget(gap);
   };
 
   m_leftSpacerAct = addWidget(makeSpacer());
@@ -2965,7 +2974,7 @@ void DvItemViewerButtonBar::buildAdvancedControls() {
     act->setData(def.extensions);
     act->setToolTip(label);
     addAction(act);
-    addIconGap();
+    m_typeFilterIconGaps.append(addIconGap());
     connect(act, &QAction::triggered, this,
             &DvItemViewerButtonBar::onTypeFilterTriggered);
     m_typeFilterActs.append(act);
@@ -2973,6 +2982,7 @@ void DvItemViewerButtonBar::buildAdvancedControls() {
 
   m_typeFilterActs.clear();
   m_typeFilterMenuActs.clear();
+  m_typeFilterIconGaps.clear();
   for (const TypeDef &def : levelDefs) addTypeFilter(def);
 
   m_typeLevelSep = addBlockSep();
@@ -3000,7 +3010,7 @@ void DvItemViewerButtonBar::buildAdvancedControls() {
           &DvItemViewerButtonBar::syncTypeFilterMenuFromIcons);
   m_typeFilterListBtn->setMenu(typeFilterMenu);
   m_typeFilterListAct = addWidget(m_typeFilterListBtn);
-  addIconGap();
+  m_typeFilterListGap = addIconGap();
 
   m_favoritesFilterBtn = new QToolButton(this);
   m_favoritesFilterBtn->setIcon(createQIcon("star"));
@@ -3013,7 +3023,7 @@ void DvItemViewerButtonBar::buildAdvancedControls() {
   connect(m_favoritesFilterBtn, &QToolButton::toggled, this,
           &DvItemViewerButtonBar::onFavoritesFilterToggled);
   m_favoritesFilterAct = addWidget(m_favoritesFilterBtn);
-  addIconGap();
+  m_favoritesFilterGap = addIconGap();
 
   m_fpsBtn = new QToolButton(this);
   m_fpsBtn->setIcon(createQIcon("browser_play_fps"));
@@ -3068,7 +3078,7 @@ void DvItemViewerButtonBar::buildAdvancedControls() {
     }
   });
   m_fpsAct = addWidget(m_fpsBtn);
-  addIconGap();
+  m_fpsGap = addIconGap();
   updateFpsButtonLabel();
 
   m_searchEdit = new QLineEdit(this);
