@@ -626,6 +626,7 @@ public:
 protected:
   void contextMenuEvent(QContextMenuEvent *event) override;
   bool eventFilter(QObject *watched, QEvent *event) override;
+  void changeEvent(QEvent *event) override;
 
 private:
   void buildAdvancedControls();

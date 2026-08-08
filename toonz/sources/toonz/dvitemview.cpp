@@ -138,19 +138,24 @@ protected:
   }
 };
 
+// Use Inactive colors so focus / dialog open does not shift the placeholder.
 static QColor browserSearchPlaceholderColor(const QPalette &pal) {
-  QColor hint = pal.color(QPalette::Active, QPalette::PlaceholderText);
+  QColor hint = pal.color(QPalette::Inactive, QPalette::PlaceholderText);
   if (hint.isValid() && hint.alpha() > 0) return hint;
 
-  const QColor text = pal.color(QPalette::Active, QPalette::Text);
-  const QColor base = pal.color(QPalette::Active, QPalette::Base);
-  if (!text.isValid() || !base.isValid())
-    return pal.color(QPalette::Active, QPalette::Mid);
+  hint = pal.color(QPalette::Inactive, QPalette::Mid);
+  if (hint.isValid() && hint.alpha() > 0) return hint;
 
-  const int wt = 11, wb = 14, sum = wt + wb;
-  return QColor((text.red() * wt + base.red() * wb) / sum,
-                (text.green() * wt + base.green() * wb) / sum,
-                (text.blue() * wt + base.blue() * wb) / sum);
+  const QColor text = pal.color(QPalette::Inactive, QPalette::Text);
+  const QColor base = pal.color(QPalette::Inactive, QPalette::Base);
+  if (text.isValid() && base.isValid()) {
+    const int wt = 11, wb = 14, sum = wt + wb;
+    return QColor((text.red() * wt + base.red() * wb) / sum,
+                  (text.green() * wt + base.green() * wb) / sum,
+                  (text.blue() * wt + base.blue() * wb) / sum);
+  }
+
+  return pal.color(QPalette::Inactive, QPalette::WindowText);
 }
 
 void applyBrowserSearchPlaceholderStyle(QLineEdit *edit) {
@@ -3274,10 +3279,23 @@ void DvItemViewerButtonBar::contextMenuEvent(QContextMenuEvent *event) {
 //-----------------------------------------------------------------------------
 
 bool DvItemViewerButtonBar::eventFilter(QObject *watched, QEvent *event) {
-  if (watched == m_searchEdit && m_searchEdit &&
-      event->type() == QEvent::PaletteChange)
-    applyBrowserSearchPlaceholderStyle(m_searchEdit);
+  if (watched == m_searchEdit && m_searchEdit) {
+    const QEvent::Type type = event->type();
+    if (type == QEvent::PaletteChange || type == QEvent::StyleChange ||
+        type == QEvent::Show)
+      applyBrowserSearchPlaceholderStyle(m_searchEdit);
+  }
   return QToolBar::eventFilter(watched, event);
+}
+
+//-----------------------------------------------------------------------------
+
+void DvItemViewerButtonBar::changeEvent(QEvent *event) {
+  QToolBar::changeEvent(event);
+  if (!m_searchEdit || !event) return;
+  const QEvent::Type type = event->type();
+  if (type == QEvent::PaletteChange || type == QEvent::StyleChange)
+    applyBrowserSearchPlaceholderStyle(m_searchEdit);
 }
 
 //-----------------------------------------------------------------------------
