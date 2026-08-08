@@ -567,8 +567,9 @@ class DvItemViewerButtonBar final : public QToolBar {
   QAction *m_rightSpacerAct;
   QAction *m_advancedSep;
   QAction *m_bgSep;     //!< Between burger and background modes
-  QAction *m_typeSep;   //!< Between background modes and type filters
-  QAction *m_searchSep; //!< Between type filters and FPS/search
+  QAction *m_typeSep;       //!< Between background modes and type filters
+  QAction *m_typeLevelSep;  //!< Between level types and asset types
+  QAction *m_searchSep;     //!< Between asset types and list/FPS/search
   QAction *m_bgWhiteAct;
   QAction *m_bgBlackAct;
   QAction *m_bgTransparentAct;

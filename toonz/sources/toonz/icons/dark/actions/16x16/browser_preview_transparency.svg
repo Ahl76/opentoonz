@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g>
+    <g transform="translate(1 1)">
+      <path d="M14 2C14 0.899999 13.1 0 12 0C12 0 2 0 2 0C0.899999 0 0 0.899999 0 2C0 2 0 12 0 12C0 13.1 0.899999 14 2 14C2 14 12 14 12 14C13.1 14 14 13.1 14 12C14 12 14 2 14 2ZM2 2C2 2 2 12 2 12C2 12 12 12 12 12C12 12 12 2 12 2C12 2 2 2 2 2ZM3 3C3 3 3 11 3 11L11 11L11 3L3 3C3 3 3 3 3 3Z" fill="#000000" fill-rule="evenodd" />
+      <path d="M2 2C2 2 0 2 0 2L0 4L2 4L2 2C2 2 2 2 2 2ZM4 0C4 0 2 0 2 0L2 2L4 2L4 0C4 0 4 0 4 0Z" fill="#808080" fill-rule="evenodd" transform="translate(3 3)" />
+      <path d="M2.00001 2C2.00001 2 0 2 0 2L0 4L2.00001 4L2.00001 2C2.00001 2 2.00001 2 2.00001 2ZM4 0C4 0 2 0 2 0L2 2L4 2L4 0C4 0 4 0 4 0Z" fill="#808080" fill-rule="evenodd" transform="translate(6.94 3)" />
+      <path d="M2.00001 2C2.00001 2 0 2 0 2L0 4L2.00001 4L2.00001 2C2.00001 2 2.00001 2 2.00001 2ZM4 0C4 0 2 0 2 0L2 2L4 2L4 0C4 0 4 0 4 0Z" fill="#808080" fill-rule="evenodd" transform="translate(6.94 7)" />
+      <path d="M2 2C2 2 0 2 0 2L0 4L2 4L2 2C2 2 2 2 2 2ZM4 0C4 0 2 0 2 0L2 2L4 2L4 0C4 0 4 0 4 0Z" fill="#808080" fill-rule="evenodd" transform="translate(3 7)" />
+    </g>
+  </g>
+</svg>

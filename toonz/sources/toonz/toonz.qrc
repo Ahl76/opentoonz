@@ -133,6 +133,22 @@
 		<file>icons/dark/actions/16x16/viewicon.svg</file>
 		<file>icons/dark/actions/16x16/collect_assets.svg</file>
 
+		<!-- File Browser advanced toolbar -->
+		<file>icons/dark/actions/16x16/browser_preview_white.svg</file>
+		<file>icons/dark/actions/16x16/browser_preview_black.svg</file>
+		<file>icons/dark/actions/16x16/browser_preview_transparency.svg</file>
+		<file>icons/dark/actions/16x16/browser_preview_checkboard.svg</file>
+		<file>icons/dark/actions/16x16/browser_toonz_raster_file.svg</file>
+		<file>icons/dark/actions/16x16/browser_image_file.svg</file>
+		<file>icons/dark/actions/16x16/browser_toonz_vector_file.svg</file>
+		<file>icons/dark/actions/16x16/browser_palette.svg</file>
+		<file>icons/dark/actions/16x16/browser_psd_file.svg</file>
+		<file>icons/dark/actions/16x16/browser_svg_file.svg</file>
+		<file>icons/dark/actions/16x16/browser_media_file.svg</file>
+		<file>icons/dark/actions/16x16/browser_audio_file.svg</file>
+		<file>icons/dark/actions/16x16/browser_filterlist.svg</file>
+		<file>icons/dark/actions/16x16/browser_play_fps.svg</file>
+
 		<file>icons/dark/actions/18x18/colored/folder_project_root.svg</file>
 
 		<file>icons/dark/actions/80x60/colored/folder_browser.svg</file>

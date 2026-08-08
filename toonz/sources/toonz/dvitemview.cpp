@@ -49,9 +49,9 @@
 #include <QHBoxLayout>
 #include <QApplication>
 #include <QScrollBar>
+#include <QGuiApplication>
+#include <QCoreApplication>
 
-#include <QImage>
-#include <QPainter>
 #include <algorithm>
 
 #include "toonzqt/colorfield.h"
@@ -67,177 +67,68 @@ const int kBrowserThumbMinWidth    = 40;
 const int kBrowserThumbMaxWidth    = 400;  // slider end-stop for very large thumbs
 const int kBrowserThumbDefaultW    = 80;
 const int kBrowserThumbDefaultH    = 60;
-//! Padding on each side of advanced-block demarcation lines (px).
 const int kBrowserBlockSepPad = 6;
+const int kBrowserIconGap = 4;
 
-QPixmap toBrowserBwPixmap(const QPixmap &pm) {
-  if (pm.isNull()) return pm;
-  QImage img = pm.toImage().convertToFormat(QImage::Format_ARGB32_Premultiplied);
-  for (int y = 0; y < img.height(); ++y) {
-    QRgb *line = reinterpret_cast<QRgb *>(img.scanLine(y));
-    for (int x = 0; x < img.width(); ++x) {
-      const QRgb p = line[x];
-      const int a  = qAlpha(p);
-      if (a == 0) continue;
-      const int g = qGray(p);
-      line[x]     = qRgba(g, g, g, a);
-    }
+QColor browserBlockSepColor(const QWidget *widget) {
+  if (!widget) return QColor(0x4f, 0x4f, 0x4f);
+  const QPalette pal = widget->palette();
+  const QColor bgWin = pal.color(QPalette::Window);
+  const bool lightChrome = bgWin.lightness() > 120;
+  if (lightChrome) return pal.color(QPalette::Text).darker(118);
+  const QColor mid = pal.color(QPalette::Mid);
+  return mid.isValid() ? mid.darker(130) : QColor(0x4f, 0x4f, 0x4f);
+}
+
+class BrowserBlockSepLine final : public QWidget {
+public:
+  explicit BrowserBlockSepLine(QWidget *parent = nullptr) : QWidget(parent) {
+    setFixedSize(1, 18);
+    setAttribute(Qt::WA_OpaquePaintEvent);
   }
-  return QPixmap::fromImage(img);
-}
 
-//! Pad/center any pixmap into a strict s×s square (type-filter chips only).
-QPixmap toSquareBrowserPixmap(const QPixmap &src, int s = 16) {
-  QPixmap square(s, s);
-  square.fill(Qt::transparent);
-  if (src.isNull()) return square;
-  QPixmap logical = src;
-  if (logical.devicePixelRatio() > 1.0) logical.setDevicePixelRatio(1.0);
-  const QPixmap scaled =
-      logical.scaled(s, s, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-  QPainter p(&square);
-  p.setRenderHint(QPainter::SmoothPixmapTransform, true);
-  p.drawPixmap((s - scaled.width()) / 2, (s - scaled.height()) / 2, scaled);
-  p.end();
-  return square;
-}
-
-QIcon iconFromBwPixmap(const QPixmap &bw) {
-  QIcon result;
-  if (bw.isNull()) return result;
-  const QPixmap square = toSquareBrowserPixmap(bw, 16);
-  result.addPixmap(square, QIcon::Normal, QIcon::Off);
-  result.addPixmap(square, QIcon::Normal, QIcon::On);
-  result.addPixmap(square, QIcon::Active, QIcon::Off);
-  result.addPixmap(square, QIcon::Active, QIcon::On);
-  result.addPixmap(square, QIcon::Selected, QIcon::On);
-  return result;
-}
-
-//! Greyscale themed icon for content-type filters (BG modes keep createQIcon).
-QIcon makeBrowserTypeFilterIcon(const QString &iconName) {
-  const QString svgPath = getIconPath(iconName);
-  if (!svgPath.isEmpty()) {
-    const QImage img =
-        svgToImage(svgPath, QSize(16, 16), Qt::KeepAspectRatio, Qt::transparent);
-    if (!img.isNull()) {
-      const QIcon ic =
-          iconFromBwPixmap(toBrowserBwPixmap(QPixmap::fromImage(img)));
-      if (!ic.isNull()) return ic;
-    }
+protected:
+  void paintEvent(QPaintEvent *) override {
+    const QWidget *toolbar = parentWidget();
+    if (toolbar) toolbar = toolbar->parentWidget();
+    QPainter p(this);
+    p.fillRect(rect(), browserBlockSepColor(toolbar));
   }
-  const QIcon src = createQIcon(iconName);
-  QPixmap pm      = src.pixmap(QSize(16, 16));
-  if (pm.isNull()) pm = src.pixmap(QSize(20, 20));
-  if (pm.isNull()) return iconFromBwPixmap(QPixmap());
-  return iconFromBwPixmap(toBrowserBwPixmap(pm));
-}
 
-//! Themed toolbar chip — SvgIconEngine (same wiring as zoom / background icons).
-QIcon makeBrowserThemedFilterIcon(const QString &iconName) {
-  QIcon ic = createQIcon(iconName);
-  if (!ic.isNull()) return ic;
-  return QIcon();
-}
-
-//! Media / movie — black SVG; needs theme colorization, not B&W conversion.
-QIcon makeBrowserMediaFilterIcon() {
-  QIcon ic = makeBrowserThemedFilterIcon(QStringLiteral("level_strip"));
-  if (!ic.isNull()) return ic;
-  return makeBrowserThemedFilterIcon(QStringLiteral("new_scene"));
-}
-
-//! Theme-aware ink (same source as SvgIconEngine / toolbar icons).
-QColor browserThemeIconColor() {
-  ThemeManager &tm = ThemeManager::getInstance();
-  QColor c         = tm.getIconBaseColor();
-  if (c.isValid()) return c;
-  c = tm.getCustomPropertyColor(QStringLiteral("icon-base-color"));
-  if (c.isValid()) return c;
-  c = QApplication::palette().color(QPalette::WindowText);
-  return c.isValid() ? c : QColor(0xd8, 0xd8, 0xd8);
-}
-
-//! List + funnel overlay — themed viewlist, distinct from List view nearby.
-QIcon makeBrowserTypeFilterListIcon() {
-  const QIcon base = createQIcon(QStringLiteral("viewlist"));
-  if (base.isNull()) return QIcon();
-
-  QIcon result;
-  const QSize sz(16, 16);
-  const QIcon::Mode modes[] = {QIcon::Normal, QIcon::Active, QIcon::Disabled,
-                               QIcon::Selected};
-  const QIcon::State states[] = {QIcon::Off, QIcon::On};
-  for (QIcon::Mode mode : modes) {
-    for (QIcon::State state : states) {
-      const QPixmap pm = base.pixmap(sz, mode, state);
-      if (pm.isNull()) continue;
-      QImage img =
-          pm.toImage().convertToFormat(QImage::Format_ARGB32_Premultiplied);
-      const QColor ink = browserThemeIconColor();
-      QPainter p(&img);
-      p.setRenderHint(QPainter::Antialiasing, true);
-      p.setPen(QPen(ink.darker(130), 1));
-      p.setBrush(ink.lighter(145));
-      QPolygonF funnel;
-      funnel << QPointF(9, 9) << QPointF(15, 9) << QPointF(12, 14);
-      p.drawPolygon(funnel);
-      p.end();
-      QPixmap out = QPixmap::fromImage(img);
-      out.setDevicePixelRatio(pm.devicePixelRatio());
-      result.addPixmap(out, mode, state);
-    }
+  void changeEvent(QEvent *event) override {
+    QWidget::changeEvent(event);
+    const QEvent::Type type = event->type();
+    if (type == QEvent::PaletteChange || type == QEvent::StyleChange) update();
   }
-  return result;
-}
+};
 
-//! Dedicated B&W palette chip.
-QIcon makeBrowserPaletteFilterIcon() {
-  const int s = 16;
-  QImage img(s, s, QImage::Format_ARGB32_Premultiplied);
-  img.fill(Qt::transparent);
-  QPainter p(&img);
-  p.setRenderHint(QPainter::Antialiasing, false);
-  p.setPen(QPen(QColor(60, 60, 60), 1));
-  p.setBrush(QColor(230, 230, 230));
-  p.drawRect(1, 2, 13, 11);
-
-  const QColor cells[] = {QColor(30, 30, 30),   QColor(80, 80, 80),
-                          QColor(130, 130, 130), QColor(180, 180, 180),
-                          QColor(55, 55, 55),   QColor(110, 110, 110),
-                          QColor(160, 160, 160), QColor(210, 210, 210),
-                          QColor(40, 40, 40),   QColor(95, 95, 95),
-                          QColor(145, 145, 145), QColor(190, 190, 190)};
-  int i = 0;
-  for (int row = 0; row < 3; ++row) {
-    for (int col = 0; col < 4; ++col, ++i) {
-      p.fillRect(2 + col * 3, 3 + row * 3, 3, 3, cells[i]);
-    }
-  }
-  p.end();
-
-  QIcon result;
-  const QPixmap pm = QPixmap::fromImage(img);
-  result.addPixmap(pm, QIcon::Normal, QIcon::Off);
-  result.addPixmap(pm, QIcon::Normal, QIcon::On);
-  result.addPixmap(pm, QIcon::Active, QIcon::Off);
-  result.addPixmap(pm, QIcon::Active, QIcon::On);
-  return result;
+// Placeholder color pinned to Inactive::Mid (stable across window focus).
+void applyBrowserSearchPlaceholderStyle(QLineEdit *edit) {
+  if (!edit) return;
+  const QPalette pal = edit->palette();
+  QColor hint = pal.color(QPalette::Inactive, QPalette::Mid);
+  if (!hint.isValid() || hint.alpha() == 0)
+    hint = pal.color(QPalette::Inactive, QPalette::WindowText);
+  if (!hint.isValid() || hint.alpha() == 0)
+    hint = pal.color(QPalette::Inactive, QPalette::Text);
+  edit->setStyleSheet(
+      QStringLiteral("QLineEdit::placeholder { color: %1; }")
+          .arg(hint.name(QColor::HexRgb)));
 }
 
 }  // namespace
 
 // GUI Show/Hide parts (Viewer-style bit flags).
 enum BrowserAdvancedGuiPart {
-  AGUI_SizeSlider  = 0x01,
-  AGUI_SizeMenu    = 0x02,
-  AGUI_Background  = 0x04,
+  AGUI_SizeSlider      = 0x01,
+  AGUI_SizeMenu        = 0x02,
+  AGUI_Background      = 0x04,
   AGUI_TypeFilters     = 0x08,
   AGUI_Search          = 0x10,
   AGUI_PlayFps         = 0x20,
   AGUI_TypeFilterList  = 0x40,
   AGUI_All = AGUI_SizeSlider | AGUI_SizeMenu | AGUI_Background | AGUI_TypeFilters |
-             AGUI_Search | AGUI_PlayFps | AGUI_TypeFilterList
+             AGUI_Search | AGUI_PlayFps | AGUI_TypeFilterList,
 };
 
 TEnv::IntVar BrowserView("BrowserView", 1);
@@ -2429,6 +2320,7 @@ DvItemViewerButtonBar::DvItemViewerButtonBar(DvItemViewer *itemViewer,
     , m_advancedSep(nullptr)
     , m_bgSep(nullptr)
     , m_typeSep(nullptr)
+    , m_typeLevelSep(nullptr)
     , m_searchSep(nullptr)
     , m_bgWhiteAct(nullptr)
     , m_bgBlackAct(nullptr)
@@ -2553,6 +2445,7 @@ DvItemViewerButtonBar::DvItemViewerButtonBar(DvItemViewer *itemViewer,
   m_guiPartsFlag = (unsigned int)(isCast ? (int)CastAdvancedGuiParts
                                          : (int)BrowserAdvancedGuiParts);
   if (m_guiPartsFlag == 0) m_guiPartsFlag = AGUI_All;
+  m_guiPartsFlag &= AGUI_All;  // drop legacy per-type filter visibility bits
   if (m_advancedDisplayAct) {
     m_advancedDisplayAct->blockSignals(true);
     m_advancedDisplayAct->setChecked(advanced);
@@ -2673,8 +2566,7 @@ void DvItemViewerButtonBar::refreshAdvancedControlsVisibility() {
   const bool anyPart = showSlider || showMenu || showBg || showTypes || showSearch ||
                        showFps;
 
-  // Spacers on BOTH sides keep the advanced cluster centered (YES mockup),
-  // not glued to the right edge (NO mockup).
+  // Center the advanced cluster (spacers left and right).
   if (m_leftSpacerAct) m_leftSpacerAct->setVisible(anyPart);
   if (m_rightSpacerAct) m_rightSpacerAct->setVisible(anyPart);
   if (m_advancedSep) m_advancedSep->setVisible(anyPart);
@@ -2686,10 +2578,11 @@ void DvItemViewerButtonBar::refreshAdvancedControlsVisibility() {
   if (m_bgTransparentAct) m_bgTransparentAct->setVisible(showBg);
   if (m_bgCheckeredAct) m_bgCheckeredAct->setVisible(showBg);
   if (m_typeSep) m_typeSep->setVisible(showBg && showTypes);
+  if (m_typeLevelSep) m_typeLevelSep->setVisible(showTypeIcons);
   for (QAction *act : m_typeFilterActs) act->setVisible(showTypeIcons);
   if (m_typeFilterListAct) m_typeFilterListAct->setVisible(showTypeList);
   if (m_searchSep)
-    m_searchSep->setVisible(showTypes && (showFps || showSearch));
+    m_searchSep->setVisible(showTypeIcons && (showTypeList || showFps || showSearch));
   if (m_fpsAct) m_fpsAct->setVisible(showFps);
   if (m_searchAct) m_searchAct->setVisible(showSearch);
 
@@ -2699,34 +2592,32 @@ void DvItemViewerButtonBar::refreshAdvancedControlsVisibility() {
 //-----------------------------------------------------------------------------
 
 void DvItemViewerButtonBar::buildAdvancedControls() {
-  // YES mockup: cluster centered in leftover width (spacers left AND right):
-  // [nav] … [slider][burger] | [BG] | [types] | [fps][search] …
   auto makeSpacer = [this]() {
     QWidget *w = new QWidget(this);
     w->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     w->setMinimumWidth(0);
     return w;
   };
-  // Visible demarcation line with equal padding before AND after (≈6 px).
   auto addBlockSep = [this]() -> QAction * {
     QWidget *wrap = new QWidget(this);
     wrap->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
     auto *lay = new QHBoxLayout(wrap);
     lay->setContentsMargins(kBrowserBlockSepPad, 0, kBrowserBlockSepPad, 0);
     lay->setSpacing(0);
-    // Solid 1px bar — QFrame::VLine + border:none was invisible in the theme.
-    auto *line = new QWidget(wrap);
-    line->setFixedSize(1, 18);
-    line->setStyleSheet(
-        QStringLiteral("background-color: #8a8a8a; border: none;"));
+    auto *line = new BrowserBlockSepLine(wrap);
     lay->addWidget(line, 0, Qt::AlignVCenter);
     return addWidget(wrap);
+  };
+  auto addIconGap = [this]() {
+    QWidget *gap = new QWidget(this);
+    gap->setFixedWidth(kBrowserIconGap);
+    gap->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+    addWidget(gap);
   };
 
   m_leftSpacerAct = addWidget(makeSpacer());
   m_advancedSep   = addBlockSep();
 
-  // Timeline-like zoom strip: mountains flush against an 81px slider.
   QWidget *sliderWrap = new QWidget(this);
   sliderWrap->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
   QHBoxLayout *lay = new QHBoxLayout(sliderWrap);
@@ -2785,7 +2676,6 @@ void DvItemViewerButtonBar::buildAdvancedControls() {
     m_sizeSlider->setValue(m_sizeSlider->value() + kBrowserIconQuantStep);
   });
 
-  // Burger immediately after slider (no separator — matches YES mockup).
   m_sizeMenuBtn = new QToolButton(this);
   m_sizeMenuBtn->setIcon(createQIcon("menu"));
   m_sizeMenuBtn->setToolTip(tr("Thumbnail Size"));
@@ -2811,92 +2701,106 @@ void DvItemViewerButtonBar::buildAdvancedControls() {
   connect(sizeMenu, &QMenu::triggered, this,
           &DvItemViewerButtonBar::onSizePresetTriggered);
   m_sizeMenuAct = addWidget(m_sizeMenuBtn);
+  addIconGap();
 
-  // Demarcation between burger and background color icons.
   m_bgSep = addBlockSep();
 
   m_bgGroup = new QActionGroup(this);
   m_bgGroup->setExclusive(false);  // re-click or uncheck all → Auto
 
-  m_bgWhiteAct =
-      new QAction(createQIcon("preview_white"), tr("White Background"), this);
+  m_bgWhiteAct = new QAction(createQIcon("browser_preview_white"),
+                             tr("White Background"), this);
   m_bgWhiteAct->setCheckable(true);
   m_bgWhiteAct->setData((int)DvItemViewerPanel::BgWhite);
   m_bgWhiteAct->setToolTip(tr("White Background"));
   m_bgGroup->addAction(m_bgWhiteAct);
   addAction(m_bgWhiteAct);
+  addIconGap();
 
-  m_bgBlackAct =
-      new QAction(createQIcon("preview_black"), tr("Black Background"), this);
+  m_bgBlackAct = new QAction(createQIcon("browser_preview_black"),
+                             tr("Black Background"), this);
   m_bgBlackAct->setCheckable(true);
   m_bgBlackAct->setData((int)DvItemViewerPanel::BgBlack);
   m_bgBlackAct->setToolTip(tr("Black Background"));
   m_bgGroup->addAction(m_bgBlackAct);
   addAction(m_bgBlackAct);
+  addIconGap();
 
-  m_bgTransparentAct = new QAction(createQIcon("transparency_check"),
-                                   tr("No Background Fill"), this);
+  m_bgTransparentAct =
+      new QAction(createQIcon("browser_preview_transparency"),
+                  tr("Transparent Background"), this);
   m_bgTransparentAct->setCheckable(true);
   m_bgTransparentAct->setData((int)DvItemViewerPanel::BgTransparent);
-  m_bgTransparentAct->setToolTip(tr("No Background Fill"));
+  m_bgTransparentAct->setToolTip(tr("Transparent Background"));
   m_bgGroup->addAction(m_bgTransparentAct);
   addAction(m_bgTransparentAct);
+  addIconGap();
 
-  m_bgCheckeredAct = new QAction(createQIcon("preview_checkboard"),
+  m_bgCheckeredAct = new QAction(createQIcon("browser_preview_checkboard"),
                                  tr("Checkered Background"), this);
   m_bgCheckeredAct->setCheckable(true);
   m_bgCheckeredAct->setData((int)DvItemViewerPanel::BgCheckered);
   m_bgCheckeredAct->setToolTip(tr("Checkered Background"));
   m_bgGroup->addAction(m_bgCheckeredAct);
   addAction(m_bgCheckeredAct);
+  addIconGap();
 
   connect(m_bgGroup, &QActionGroup::triggered, this,
           &DvItemViewerButtonBar::onBgModeTriggered);
 
-  // Demarcation between background modes and content-type filters.
   m_typeSep = addBlockSep();
 
+  static const QStringList kRasterExts = {
+      "PNG", "TIF", "TIFF", "JPG", "JPEG", "TGA", "BMP", "EXR"};
+  static const QStringList kMediaExts = {
+      "MP4", "MOV", "AVI", "WEBM", "GIF", "3GP"};
+  static const QStringList kAudioExts = {
+      "WAV", "AIFF", "AIF", "MP3", "FLAC", "OGG"};
+
   struct TypeDef {
-    int kind;  // 0 = themed name, 1 = palette, 2 = media
     const char *iconName;
     const char *label;
     QStringList extensions;
   };
-  const TypeDef typeDefs[] = {
-      {0, "new_toonz_raster_level", QT_TR_NOOP("Toonz Raster (TLV)"), {"TLV"}},
-      {0, "new_raster_level", QT_TR_NOOP("Raster Image"),
-       {"PNG", "TIF", "TIFF", "JPG", "JPEG", "TGA", "BMP", "EXR"}},
-      {0, "new_vector_level", QT_TR_NOOP("Toonz Vector File (PLI)"), {"PLI"}},
-      {1, "", QT_TR_NOOP("Palette (TPL)"), {"TPL"}},
-      {0, "svg_icon", QT_TR_NOOP("SVG"), {"SVG"}},
-      {2, "", QT_TR_NOOP("Media"),
-       {"MP4", "MOV", "AVI", "WEBM", "GIF", "3GP"}},
-      {0, "audio_icon", QT_TR_NOOP("Audio"),
-       {"WAV", "AIFF", "AIF", "MP3", "FLAC", "OGG"}},
+  const TypeDef levelDefs[] = {
+      {"browser_image_file", QT_TR_NOOP("Raster Image"), kRasterExts},
+      {"browser_toonz_raster_file", QT_TR_NOOP("Toonz Raster (TLV)"), {"TLV"}},
+      {"browser_toonz_vector_file", QT_TR_NOOP("Toonz Vector (PLI)"), {"PLI"}},
+      {"browser_palette", QT_TR_NOOP("Palette (TPL)"), {"TPL"}},
+  };
+  const TypeDef assetDefs[] = {
+      {"browser_psd_file", QT_TR_NOOP("PSD"), {"PSD"}},
+      {"browser_svg_file", QT_TR_NOOP("SVG"), {"SVG"}},
+      {"browser_media_file", QT_TR_NOOP("Media"), kMediaExts},
+      {"browser_audio_file", QT_TR_NOOP("Audio"), kAudioExts},
   };
 
-  for (const TypeDef &def : typeDefs) {
+  auto addTypeFilter = [this, &addIconGap](const TypeDef &def) {
     const QString label = tr(def.label);
-    QIcon icon;
-    if (def.kind == 1)
-      icon = makeBrowserPaletteFilterIcon();
-    else if (def.kind == 2)
-      icon = makeBrowserMediaFilterIcon();
-    else
-      icon = makeBrowserTypeFilterIcon(QLatin1String(def.iconName));
-    QAction *act = new QAction(icon, label, this);
+    QAction *act =
+        new QAction(createQIcon(QLatin1String(def.iconName)), label, this);
     act->setCheckable(true);
     act->setData(def.extensions);
     act->setToolTip(label);
     addAction(act);
+    addIconGap();
     connect(act, &QAction::triggered, this,
             &DvItemViewerButtonBar::onTypeFilterTriggered);
     m_typeFilterActs.append(act);
-  }
+  };
 
-  // Checklist popup for content types (viewlist + funnel, distinct from List view).
+  m_typeFilterActs.clear();
+  m_typeFilterMenuActs.clear();
+  for (const TypeDef &def : levelDefs) addTypeFilter(def);
+
+  m_typeLevelSep = addBlockSep();
+
+  for (const TypeDef &def : assetDefs) addTypeFilter(def);
+
+  m_searchSep = addBlockSep();
+
   m_typeFilterListBtn = new QToolButton(this);
-  m_typeFilterListBtn->setIcon(makeBrowserTypeFilterListIcon());
+  m_typeFilterListBtn->setIcon(createQIcon("browser_filterlist"));
   m_typeFilterListBtn->setToolTip(tr("Content Type Filters"));
   m_typeFilterListBtn->setPopupMode(QToolButton::InstantPopup);
   m_typeFilterListBtn->setAutoRaise(true);
@@ -2914,24 +2818,17 @@ void DvItemViewerButtonBar::buildAdvancedControls() {
           &DvItemViewerButtonBar::syncTypeFilterMenuFromIcons);
   m_typeFilterListBtn->setMenu(typeFilterMenu);
   m_typeFilterListAct = addWidget(m_typeFilterListBtn);
-  connect(ThemePropertiesNotifier::instance(),
-          &ThemePropertiesNotifier::propertiesChanged, this, [this]() {
-            if (m_typeFilterListBtn)
-              m_typeFilterListBtn->setIcon(makeBrowserTypeFilterListIcon());
-          });
+  addIconGap();
 
-  m_searchSep = addBlockSep();
-
-  // Playback FPS — Flipbook-style: type a value; loop toggle beside field.
   m_fpsBtn = new QToolButton(this);
-  m_fpsBtn->setIcon(createQIcon("play"));
+  m_fpsBtn->setIcon(createQIcon("browser_play_fps"));
+  m_fpsBtn->setToolTip(tr("Playback FPS"));
   m_fpsBtn->setPopupMode(QToolButton::InstantPopup);
   m_fpsBtn->setAutoRaise(true);
   m_fpsBtn->setFocusPolicy(Qt::NoFocus);
   m_fpsBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
   QMenu *fpsMenu = new QMenu(m_fpsBtn);
 
-  // Top row: numeric field + loop (before presets).
   auto *fpsTopHost = new QWidget(fpsMenu);
   auto *fpsTopLay  = new QHBoxLayout(fpsTopHost);
   fpsTopLay->setContentsMargins(8, 6, 8, 4);
@@ -2976,13 +2873,25 @@ void DvItemViewerButtonBar::buildAdvancedControls() {
     }
   });
   m_fpsAct = addWidget(m_fpsBtn);
+  addIconGap();
   updateFpsButtonLabel();
 
   m_searchEdit = new QLineEdit(this);
+  m_searchEdit->setObjectName(QStringLiteral("browserSearchEdit"));
   m_searchEdit->setPlaceholderText(tr("Search…"));
   m_searchEdit->setClearButtonEnabled(true);
   m_searchEdit->setFixedWidth(140);
   m_searchEdit->setToolTip(tr("Search folders and files by name"));
+  applyBrowserSearchPlaceholderStyle(m_searchEdit);
+#if QT_VERSION >= QT_VERSION_CHECK(5, 12, 0)
+  if (QGuiApplication *app =
+          qobject_cast<QGuiApplication *>(QCoreApplication::instance())) {
+    connect(app, &QGuiApplication::paletteChanged, m_searchEdit,
+            [this](const QPalette &) {
+              applyBrowserSearchPlaceholderStyle(m_searchEdit);
+            });
+  }
+#endif
   m_searchAct = addWidget(m_searchEdit);
   connect(m_searchEdit, &QLineEdit::textChanged, this,
           &DvItemViewerButtonBar::onSearchTextEdited);
