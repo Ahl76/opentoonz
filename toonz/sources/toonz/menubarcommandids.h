@@ -250,6 +250,7 @@
 #define MI_DuplicateFile "MI_DuplicateFile"
 #define MI_ViewFile "MI_ViewFile"
 #define MI_ConvertFiles "MI_ConvertFiles"
+#define MI_RescaleFiles "MI_RescaleFiles"
 #define MI_ConvertFileWithInput "MI_ConvertFileWithInput"
 #define MI_ShowFolderContents "MI_ShowFolderContents"
 #define MI_PremultiplyFile "MI_PremultiplyFile"

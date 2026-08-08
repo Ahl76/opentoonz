@@ -2872,6 +2872,8 @@ void MainWindow::defineActions() {
                              "show_folder_contents");
   createRightClickMenuAction(MI_ConvertFiles, QT_TR_NOOP("Convert..."), "",
                              "convert");
+  createRightClickMenuAction(MI_RescaleFiles, QT_TR_NOOP("Rescale..."), "",
+                             "rescale");
   createRightClickMenuAction(MI_CollectAssets, QT_TR_NOOP("Collect Assets"), "",
                              "collect_assets");
   createRightClickMenuAction(MI_ImportScenes, QT_TR_NOOP("Import Scene"), "",

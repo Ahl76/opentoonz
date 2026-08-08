@@ -30,6 +30,7 @@ set(MOC_HEADERS
     commandbar.h
     commandbarpopup.h
     convertpopup.h
+    rescalepopup.h
     crashhandler.h
     duplicatepopup.h
     dvdirtreeview.h
@@ -274,6 +275,7 @@ set(SOURCES
     addfilmstripframespopup.cpp
     camerasettingspopup.cpp
     convertpopup.cpp
+    rescalepopup.cpp
     crashhandler.cpp
     duplicatepopup.cpp
     dvdirtreeview.cpp

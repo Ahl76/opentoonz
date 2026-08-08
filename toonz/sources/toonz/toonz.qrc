@@ -88,6 +88,7 @@
 		<file>icons/dark/actions/16x16/save_scene_as.svg</file>
 		<file>icons/dark/actions/16x16/load_scene.svg</file>
 		<file>icons/dark/actions/16x16/convert.svg</file>
+		<file>icons/dark/actions/16x16/rescale.svg</file>
 		<file>icons/dark/actions/16x16/orientation_h.svg</file>
 		<file>icons/dark/actions/16x16/orientation_v.svg</file>
 		<file>icons/dark/actions/16x16/load_as_sub_xsheet.svg</file>
