@@ -286,6 +286,7 @@ private:
   QSplitter *m_mainSplitter;
   QLineEdit *m_folderName;
   DvItemViewer *m_itemViewer;
+  DvItemViewerButtonBar *m_buttonBar = nullptr;
   FrameCountReader m_frameCountReader;
 
   // folder history

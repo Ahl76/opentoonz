@@ -99,6 +99,45 @@ protected:
   }
 };
 
+//! Project-folder shortcut button (folder icon + letter label).
+class ProjectFolderShortcutButton final : public QToolButton {
+  QString m_label;
+
+public:
+  ProjectFolderShortcutButton(const QString &label, QWidget *parent = nullptr)
+      : QToolButton(parent), m_label(label) {
+    setIcon(createQIcon("folder"));
+  }
+
+protected:
+  void paintEvent(QPaintEvent *event) override {
+    QToolButton::paintEvent(event);
+    if (m_label.isEmpty()) return;
+
+    const QRect cr = contentsRect();
+    const QSize is = iconSize();
+    const QRect iconRect(cr.x() + (cr.width() - is.width()) / 2,
+                         cr.y() + (cr.height() - is.height()) / 2, is.width(),
+                         is.height());
+
+    QPainter p(this);
+    p.setRenderHint(QPainter::TextAntialiasing);
+    QFont font = p.font();
+    font.setPixelSize(m_label.size() > 1 ? 8 : 10);
+    font.setBold(true);
+    p.setFont(font);
+    p.setPen(QColor(25, 25, 25));
+
+    const QFontMetrics fm(font);
+    const QRect tight = fm.tightBoundingRect(m_label);
+    const int cx = iconRect.center().x();
+    const int cy = iconRect.top() + qRound(iconRect.height() * 0.55);
+    QRect target(0, 0, qMax(tight.width() + 2, 8), qMax(tight.height() + 2, 8));
+    target.moveCenter(QPoint(cx, cy));
+    p.drawText(target, Qt::AlignCenter, m_label);
+  }
+};
+
 static QColor browserSearchPlaceholderColor(const QPalette &pal) {
   QColor hint = pal.color(QPalette::Active, QPalette::PlaceholderText);
   if (hint.isValid() && hint.alpha() > 0) return hint;
@@ -2393,6 +2432,8 @@ DvItemViewerButtonBar::DvItemViewerButtonBar(DvItemViewer *itemViewer,
     , m_typeFilterListAct(nullptr)
     , m_favoritesFilterAct(nullptr)
     , m_searchAct(nullptr)
+    , m_projectFoldersSep(nullptr)
+    , m_projectFolderHostAct(nullptr)
     , m_bgGroup(nullptr)
     , m_sizeMenuBtn(nullptr)
     , m_typeFilterListBtn(nullptr)
@@ -2402,6 +2443,7 @@ DvItemViewerButtonBar::DvItemViewerButtonBar(DvItemViewer *itemViewer,
     , m_loopBtn(nullptr)
     , m_sizeSlider(nullptr)
     , m_searchEdit(nullptr)
+    , m_projectFolderHost(nullptr)
     , m_advancedDisplayAct(nullptr)
     , m_guiPartsFlag(AGUI_All)
     , m_updatingUi(false) {
@@ -2656,6 +2698,77 @@ void DvItemViewerButtonBar::refreshAdvancedControlsVisibility() {
   if (m_searchAct) m_searchAct->setVisible(showSearch);
 
   if (anyPart) uniformAdvancedIconButtons();
+}
+
+//-----------------------------------------------------------------------------
+
+namespace {
+// Project subfolder order (see stuff/profiles/project_folders.txt).
+const char *kProjectFolderOrder[] = {"drawings", "extras",  "inputs", "outputs",
+                                     "palettes", "scenes", "scripts"};
+constexpr int kProjectFolderCount =
+    int(sizeof(kProjectFolderOrder) / sizeof(kProjectFolderOrder[0]));
+
+void clearLayoutWidgets(QLayout *layout) {
+  if (!layout) return;
+  while (QLayoutItem *item = layout->takeAt(0)) {
+    if (QWidget *w = item->widget()) w->deleteLater();
+    delete item;
+  }
+}
+
+QString folderMonogramLabel(const QString &folderName) {
+  if (folderName == QLatin1String("scripts")) return QStringLiteral("SC");
+  if (folderName.isEmpty()) return QString();
+  return folderName.left(1).toUpper();
+}
+}  // namespace
+
+void DvItemViewerButtonBar::refreshProjectFolderShortcuts() {
+  QVector<QPair<QString, TFilePath>> folders;
+  auto project = TProjectManager::instance()->getCurrentProject();
+  if (project) {
+    for (int i = 0; i < kProjectFolderCount; ++i) {
+      const std::string name = kProjectFolderOrder[i];
+      const TFilePath fp     = project->getFolder(name, true);
+      if (!TFileStatus(fp).doesExist()) continue;
+      folders.append({QString::fromStdString(name), fp});
+    }
+  }
+  setProjectFolderShortcuts(folders);
+}
+
+void DvItemViewerButtonBar::setProjectFolderShortcuts(
+    const QVector<QPair<QString, TFilePath>> &folders) {
+  if (!m_projectFolderHost || !m_projectFolderHostAct) return;
+
+  const bool isBrowser =
+      m_itemViewer && m_itemViewer->m_windowType == DvItemViewer::Browser;
+  const bool show = isBrowser && !folders.isEmpty();
+
+  clearLayoutWidgets(m_projectFolderHost->layout());
+
+  if (show) {
+    auto *layout = m_projectFolderHost->layout();
+    for (const auto &entry : folders) {
+      auto *btn = new ProjectFolderShortcutButton(
+          folderMonogramLabel(entry.first), m_projectFolderHost);
+      btn->setToolTip(entry.first);
+      styleAdvancedIconWidget(btn);
+      btn->setIconSize(QSize(22, 22));
+      btn->setFixedSize(26, 26);
+      btn->setStyleSheet(
+          QStringLiteral("QToolButton { padding: 0px; margin: 0px; }"));
+      const TFilePath path = entry.second;
+      connect(btn, &QToolButton::clicked, this,
+              [this, path]() { emit projectFolderTriggered(path); });
+      layout->addWidget(btn);
+    }
+    m_projectFolderHost->adjustSize();
+  }
+
+  if (m_projectFoldersSep) m_projectFoldersSep->setVisible(show);
+  m_projectFolderHostAct->setVisible(show);
 }
 
 //-----------------------------------------------------------------------------
@@ -2978,6 +3091,16 @@ void DvItemViewerButtonBar::buildAdvancedControls() {
   m_searchEdit->installEventFilter(this);
   connect(m_searchEdit, &QLineEdit::textChanged, this,
           &DvItemViewerButtonBar::onSearchTextEdited);
+
+  m_projectFoldersSep = addBlockSep();
+  m_projectFolderHost = new QWidget(this);
+  m_projectFolderHost->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+  auto *projectFolderLay = new QHBoxLayout(m_projectFolderHost);
+  projectFolderLay->setContentsMargins(0, 0, 0, 0);
+  projectFolderLay->setSpacing(kBrowserIconGap);
+  m_projectFolderHostAct = addWidget(m_projectFolderHost);
+  m_projectFoldersSep->setVisible(false);
+  m_projectFolderHostAct->setVisible(false);
 
   // Matching left spacer — centers the whole advanced cluster.
   m_rightSpacerAct = addWidget(makeSpacer());

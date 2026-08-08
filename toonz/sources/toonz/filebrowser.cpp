@@ -325,6 +325,7 @@ FileBrowser::FileBrowser(QWidget *parent, Qt::WindowFlags flags,
   DvItemViewerTitleBar *titleBar = new DvItemViewerTitleBar(m_itemViewer, box);
   DvItemViewerButtonBar *buttonBar =
       new DvItemViewerButtonBar(m_itemViewer, box);
+  m_buttonBar = buttonBar;
   DvItemViewerPanel *viewerPanel = m_itemViewer->getPanel();
 
   viewerPanel->addColumn(DvItemListModel::FileType, 50);
@@ -399,6 +400,8 @@ FileBrowser::FileBrowser(QWidget *parent, Qt::WindowFlags flags,
           &FileBrowser::onTypeFilterChanged);
   connect(buttonBar, &DvItemViewerButtonBar::favoritesFilterChanged, this,
           &FileBrowser::onFavoritesFilterChanged);
+  connect(buttonBar, &DvItemViewerButtonBar::projectFolderTriggered, this,
+          [this](const TFilePath &fp) { setFolder(fp, true); });
 
   connect(&m_frameCountReader, &FrameCountReader::calculatedFrameCount,
           m_itemViewer->getPanel(), qOverload<>(&DvItemViewerPanel::update));
@@ -440,6 +443,10 @@ FileBrowser::FileBrowser(QWidget *parent, Qt::WindowFlags flags,
   m_currentPosition = 0;
 
   refreshHistoryButtons();
+
+  connect(TApp::instance()->getCurrentScene(), &TSceneHandle::sceneSwitched,
+          buttonBar, &DvItemViewerButtonBar::refreshProjectFolderShortcuts);
+  buttonBar->refreshProjectFolderShortcuts();
 }
 
 //-----------------------------------------------------------------------------
@@ -2698,6 +2705,8 @@ void FileBrowser::showEvent(QShowEvent *) {
   DvDirVersionControlNode *vcNode = dynamic_cast<DvDirVersionControlNode *>(
       m_folderTreeView->getCurrentNode());
   if (vcNode) m_folderTreeView->refreshVersionControl(vcNode);
+
+  if (m_buttonBar) m_buttonBar->refreshProjectFolderShortcuts();
 }
 
 //-----------------------------------------------------------------------------

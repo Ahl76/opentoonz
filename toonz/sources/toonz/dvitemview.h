@@ -17,6 +17,8 @@
 #include <QToolBar>
 #include <QList>
 #include <QStringList>
+#include <QVector>
+#include <utility>
 
 // STD includes
 #include <set>
@@ -583,6 +585,8 @@ class DvItemViewerButtonBar final : public QToolBar {
   QAction *m_typeFilterListAct;
   QAction *m_favoritesFilterAct;
   QAction *m_searchAct;
+  QAction *m_projectFoldersSep;
+  QAction *m_projectFolderHostAct;
   QList<QAction *> m_typeFilterActs;
   QList<QAction *> m_typeFilterMenuActs;
   QActionGroup *m_bgGroup;
@@ -594,6 +598,7 @@ class DvItemViewerButtonBar final : public QToolBar {
   QToolButton *m_loopBtn;
   QSlider *m_sizeSlider;
   class QLineEdit *m_searchEdit;
+  QWidget *m_projectFolderHost;
   QAction *m_advancedDisplayAct;
   unsigned int m_guiPartsFlag;
   bool m_updatingUi;
@@ -608,6 +613,8 @@ class DvItemViewerButtonBar final : public QToolBar {
   void addGuiShowHideMenu(QMenu *menu);
   void updateFpsButtonLabel();
   void syncTypeFilterMenuFromIcons();
+  void setProjectFolderShortcuts(
+      const QVector<QPair<QString, TFilePath>> &folders);
 
 public:
   DvItemViewerButtonBar(DvItemViewer *itemViewer, QWidget *parent = 0);
@@ -637,6 +644,7 @@ public slots:
   void onPlayFpsTriggered(QAction *action);
   void onPlayFpsFieldEdited();
   void onPlayLoopToggled(bool on);
+  void refreshProjectFolderShortcuts();
 
 signals:
   void folderUp();
@@ -646,6 +654,7 @@ signals:
   void searchFilterChanged(const QString &text);
   void favoritesFilterChanged(bool on);
   void typeFilterChanged(const QStringList &extensions);
+  void projectFolderTriggered(const TFilePath &path);
 };
 
 #endif  // DV_ITEM_VIEW_INCLUDED
