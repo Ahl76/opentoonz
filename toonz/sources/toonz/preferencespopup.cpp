@@ -1250,6 +1250,8 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
       {sceneNumberingEnabled, tr("Add Info water mark in Rendered Frames")},
       {watchFileSystemEnabled,
        tr("Watch File System and Update File Browser Automatically")},
+      {fileBrowserFolderDoubleClick,
+       tr("Open Folders in File Browser with Double-Click")},
       //{ projectRoot,               tr("") },
       {customProjectRoot, tr("Custom Project Path(s):")},
       {pathAliasPriority, tr("Path Alias Priority:")},
@@ -1712,6 +1714,7 @@ QWidget* PreferencesPopup::createGeneralPage() {
   insertUI(undoMemorySize, lay);
   insertUI(rasterOptimizedMemory, lay);
   insertUI(watchFileSystemEnabled, lay);
+  insertUI(fileBrowserFolderDoubleClick, lay);
   insertUI(lazyLoadRooms, lay);
 
   QGridLayout* projectRootLay =
