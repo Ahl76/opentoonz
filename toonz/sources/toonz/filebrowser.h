@@ -304,6 +304,8 @@ private:
   bool m_infoPanelVisible = false;
   bool m_infoThumbVisible = true;
   TFilePath m_infoCurrentPath;
+  //! Last info-panel thumbnail render size (IconGenerator cache key).
+  QSize m_infoThumbReqSize;
   QLineEdit *m_folderName;
   DvItemViewer *m_itemViewer;
   DvItemViewerButtonBar *m_buttonBar = nullptr;
@@ -314,7 +316,9 @@ private:
   int m_currentPosition = 0;
 
   bool getInfoPanelFile(TFilePath &path) const;
+  int infoThumbPanelWidth() const;
   void updateInfoThumbnail(const TFilePath &fp);
+  void setInfoThumbnailPixmap(const QPixmap &px);
 
   std::vector<Item> m_items;
   TFilePath m_folder;

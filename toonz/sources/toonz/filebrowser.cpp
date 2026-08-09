@@ -2647,6 +2647,22 @@ void FileBrowser::onItemsSplitterMoved(int, int) {
   if (!m_itemsSplitter || !m_infoPanelVisible) return;
   QList<int> sizes = m_itemsSplitter->sizes();
   if (sizes.size() == 2 && sizes[1] > 0) BrowserInfoPanelWidth = sizes[1];
+
+  // Re-render if the panel is wider than the cached size.
+  if (m_infoThumbnail && m_infoCurrentPath != TFilePath() &&
+      !m_infoThumbReqSize.isEmpty()) {
+    const int wanted =
+        (int)(infoThumbPanelWidth() * m_infoThumbnail->devicePixelRatioF());
+    if (wanted > m_infoThumbReqSize.width()) {
+      updateInfoThumbnail(m_infoCurrentPath);
+    } else {
+      // Re-fit from cache while dragging the splitter.
+      QPixmap src = IconGenerator::instance()->peekSizedIcon(
+          m_infoCurrentPath, TDimension(m_infoThumbReqSize.width(),
+                                        m_infoThumbReqSize.height()));
+      if (!src.isNull()) setInfoThumbnailPixmap(src);
+    }
+  }
 }
 
 //-----------------------------------------------------------------------------
@@ -2657,61 +2673,68 @@ void FileBrowser::onInfoPanelActionTriggered(bool on) {
 
 //-----------------------------------------------------------------------------
 
+int FileBrowser::infoThumbPanelWidth() const {
+  int panelW =
+      m_infoScrollArea ? m_infoScrollArea->viewport()->width() - 8 : 160;
+  return qMax(60, panelW);
+}
+
+//-----------------------------------------------------------------------------
+
 void FileBrowser::updateInfoThumbnail(const TFilePath &fp) {
   if (!m_infoThumbnail) return;
   m_infoCurrentPath = fp;
   if (fp == TFilePath()) {
+    m_infoThumbReqSize = QSize();
     m_infoThumbnail->setPixmap(QPixmap());
     m_infoThumbnail->setFixedHeight(0);
     return;
   }
-  int panelW =
-      m_infoScrollArea ? m_infoScrollArea->viewport()->width() - 8 : 160;
-  if (panelW < 60) panelW = 60;
-  int maxH   = qMin(panelW, 200);
-  double dpr = m_infoThumbnail->devicePixelRatioF();
-  int reqW   = (int)(panelW * dpr);
-  int reqH   = (int)(maxH * dpr);
+  const double dpr = m_infoThumbnail->devicePixelRatioF();
 
-  // Prefer getSizedIcon; getIcon is a low-res fallback while render is pending.
-  QPixmap px =
-      IconGenerator::instance()->getSizedIcon(fp, TDimension(reqW, reqH));
+  // Snap to coarse buckets: the cache key includes the render size.
+  const int wanted = (int)(infoThumbPanelWidth() * dpr);
+  const int bucket = 64;
+  const int req    = qMax(128, ((wanted + bucket - 1) / bucket) * bucket);
+  m_infoThumbReqSize = QSize(req, req);
+
+  // getSizedIcon queues HD; getIcon is the interim fallback.
+  QPixmap px = IconGenerator::instance()->getSizedIcon(fp, TDimension(req, req));
   if (px.isNull()) px = IconGenerator::instance()->getIcon(fp);
   if (px.isNull()) {
     m_infoThumbnail->setPixmap(QPixmap());
     m_infoThumbnail->setFixedHeight(0);
     return;
   }
-  QPixmap scaled = px.scaled(panelW * dpr, maxH * dpr, Qt::KeepAspectRatio,
-                             Qt::SmoothTransformation);
+  setInfoThumbnailPixmap(px);
+}
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::setInfoThumbnailPixmap(const QPixmap &px) {
+  if (!m_infoThumbnail || px.isNull()) return;
+  const int panelW = infoThumbPanelWidth();
+  const double dpr = m_infoThumbnail->devicePixelRatioF();
+  QPixmap scaled   = px.scaled(QSize(panelW, qMin(panelW, 200)) * dpr,
+                               Qt::KeepAspectRatio, Qt::SmoothTransformation);
   scaled.setDevicePixelRatio(dpr);
   m_infoThumbnail->setPixmap(scaled);
   m_infoThumbnail->setFixedHeight((int)(scaled.height() / dpr) + 4);
 }
 
+//-----------------------------------------------------------------------------
+
 void FileBrowser::onIconGenerated() {
   if (!m_infoPanelVisible || !m_infoThumbnail || !m_infoThumbVisible) return;
   if (m_infoCurrentPath == TFilePath()) return;
+  if (m_infoThumbReqSize.isEmpty()) return;
 
-  int panelW =
-      m_infoScrollArea ? m_infoScrollArea->viewport()->width() - 8 : 160;
-  if (panelW < 60) panelW = 60;
-  int maxH   = qMin(panelW, 200);
-  double dpr = m_infoThumbnail->devicePixelRatioF();
-  int reqW   = (int)(panelW * dpr);
-  int reqH   = (int)(maxH * dpr);
-
-  // Cache lookup only — do not queue another render from this slot.
   QPixmap px = IconGenerator::instance()->peekSizedIcon(
-      m_infoCurrentPath, TDimension(reqW, reqH));
-  if (px.isNull()) px = IconGenerator::instance()->getIcon(m_infoCurrentPath);
+      m_infoCurrentPath,
+      TDimension(m_infoThumbReqSize.width(), m_infoThumbReqSize.height()));
   if (px.isNull()) return;
 
-  QPixmap scaled = px.scaled(panelW * dpr, maxH * dpr, Qt::KeepAspectRatio,
-                             Qt::SmoothTransformation);
-  scaled.setDevicePixelRatio(dpr);
-  m_infoThumbnail->setPixmap(scaled);
-  m_infoThumbnail->setFixedHeight((int)(scaled.height() / dpr) + 4);
+  setInfoThumbnailPixmap(px);
 }
 
 void FileBrowser::refreshInfoPanelFromSelection() {
