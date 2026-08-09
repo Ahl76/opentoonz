@@ -170,6 +170,7 @@ types to be displayed in the file browser.
 
 public slots:
   void onInfoPanelActionTriggered(bool on);
+  void onInfoPanelContextMenu(const QPoint &pos);
 
 protected:
   int findIndexWithPath(TFilePath path);

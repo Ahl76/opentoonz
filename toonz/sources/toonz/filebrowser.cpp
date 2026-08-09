@@ -402,6 +402,18 @@ FileBrowser::FileBrowser(QWidget *parent, Qt::WindowFlags flags,
 
   m_infoScrollArea->setWidget(m_infoPanelHost);
 
+  // Right-click → Hide (when the Advanced Info button is unavailable).
+  auto wireInfoHideMenu = [this](QWidget *w) {
+    if (!w) return;
+    w->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(w, &QWidget::customContextMenuRequested, this,
+            &FileBrowser::onInfoPanelContextMenu, Qt::UniqueConnection);
+  };
+  wireInfoHideMenu(m_infoScrollArea);
+  wireInfoHideMenu(m_infoScrollArea->viewport());
+  for (QWidget *w : m_infoScrollArea->findChildren<QWidget *>())
+    wireInfoHideMenu(w);
+
   connect(m_itemsSplitter, &QSplitter::splitterMoved, this,
           &FileBrowser::onItemsSplitterMoved);
 
@@ -2669,6 +2681,17 @@ void FileBrowser::onItemsSplitterMoved(int, int) {
 
 void FileBrowser::onInfoPanelActionTriggered(bool on) {
   setInfoPanelVisible(on);
+}
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::onInfoPanelContextMenu(const QPoint &pos) {
+  QWidget *w = qobject_cast<QWidget *>(sender());
+  if (!w || !m_infoPanelVisible) return;
+
+  QMenu menu(this);
+  QAction *hideAct = menu.addAction(tr("Hide"));
+  if (menu.exec(w->mapToGlobal(pos)) == hideAct) setInfoPanelVisible(false);
 }
 
 //-----------------------------------------------------------------------------
