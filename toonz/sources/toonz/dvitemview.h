@@ -580,6 +580,7 @@ class DvItemViewerButtonBar final : public QToolBar {
   QAction *m_bgTransparentAct;
   QAction *m_bgCheckeredAct;
   QAction *m_sizeMenuAct;
+  QAction *m_infoPanelAct;
   QAction *m_sizeSliderAct;
   QAction *m_fpsAct;
   QAction *m_typeFilterListAct;
@@ -622,6 +623,10 @@ class DvItemViewerButtonBar final : public QToolBar {
 
 public:
   DvItemViewerButtonBar(DvItemViewer *itemViewer, QWidget *parent = 0);
+
+  void setInfoPanelChecked(bool checked);
+  void setInfoPanelEnabled(bool enabled);
+  QAction *infoPanelAction() const { return m_infoPanelAct; }
 
 protected:
   void contextMenuEvent(QContextMenuEvent *event) override;

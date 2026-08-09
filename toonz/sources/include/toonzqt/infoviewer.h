@@ -25,13 +25,21 @@ class InfoViewerImp;
 class DVAPI InfoViewer final : public DVGui::Dialog {
   Q_OBJECT
   std::unique_ptr<InfoViewerImp> m_imp;
+  bool m_embedded = false;
 
 public:
   InfoViewer(QWidget *parent = 0);
   ~InfoViewer();
 
+  void setEmbedded(bool embedded);
+  bool isEmbedded() const { return m_embedded; }
+
+  QSize sizeHint() const override;
+  QSize minimumSizeHint() const override;
+
 protected:
   void hideEvent(QHideEvent *) override;
+  void resizeEvent(QResizeEvent *) override;
 protected slots:
   void onSliderChanged(bool);
 public slots:

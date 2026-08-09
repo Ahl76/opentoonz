@@ -24,9 +24,11 @@
 class QLineEdit;
 class QTreeWidgetItem;
 class QSplitter;
+class QScrollArea;
 class DvDirModelNode;
 class DvDirTreeView;
 class QFileSystemWatcher;
+class InfoViewer;
 
 //-----------------------------------------------------------------------------
 
@@ -163,6 +165,12 @@ types to be displayed in the file browser.
   // So it is disabled by default.
   void enableDoubleClickToOpenScenes();
 
+  void setInfoPanelVisible(bool visible);
+  bool isInfoPanelVisible() const { return m_infoPanelVisible; }
+
+public slots:
+  void onInfoPanelActionTriggered(bool on);
+
 protected:
   int findIndexWithPath(TFilePath path);
   void getExpandedFolders(DvDirModelNode *node,
@@ -197,6 +205,9 @@ protected slots:
   void onClickedItem(int index);
   void onDoubleClickedItem(int index);
   void onSelectedItems(const std::set<int> &indexes);
+  void onItemsSplitterMoved(int pos, int index);
+  void refreshInfoPanelFromSelection();
+  void onIconGenerated();
   void folderUp();
   void newFolder();
   void onSearchFilterChanged(const QString &text);
@@ -284,6 +295,15 @@ private:
 private:
   DvDirTreeView *m_folderTreeView;
   QSplitter *m_mainSplitter;
+  QSplitter *m_itemsSplitter = nullptr;
+  QScrollArea *m_infoScrollArea = nullptr;
+  QWidget *m_infoPanelHost = nullptr;
+  InfoViewer *m_infoViewer = nullptr;
+  QLabel *m_infoThumbnail = nullptr;
+  QToolButton *m_thumbCollapseBtn = nullptr;
+  bool m_infoPanelVisible = false;
+  bool m_infoThumbVisible = true;
+  TFilePath m_infoCurrentPath;
   QLineEdit *m_folderName;
   DvItemViewer *m_itemViewer;
   DvItemViewerButtonBar *m_buttonBar = nullptr;
@@ -292,6 +312,9 @@ private:
   // folder history
   QList<QModelIndex> m_indexHistoryList;
   int m_currentPosition = 0;
+
+  bool getInfoPanelFile(TFilePath &path) const;
+  void updateInfoThumbnail(const TFilePath &fp);
 
   std::vector<Item> m_items;
   TFilePath m_folder;

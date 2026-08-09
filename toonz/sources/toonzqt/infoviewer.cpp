@@ -25,6 +25,10 @@
 #include <QLabel>
 #include <QTextEdit>
 #include <QDateTime>
+#include <QResizeEvent>
+#include <QSizePolicy>
+#include <QFontMetrics>
+#include <QTimer>
 
 using namespace DVGui;
 
@@ -82,9 +86,12 @@ public:
   QLabel m_framesLabel;
   IntField m_framesSlider;
   std::vector<std::pair<QLabel *, QLabel *>> m_labels;
+  std::vector<QString> m_fullValues;
   QLabel m_historyLabel;
   QTextEdit m_history;
   Separator m_separator1, m_separator2;
+  bool m_embeddedStyle = false;
+  int m_valueColumnWidth = 0;
   void setFileInfo(const TFileStatus &status);
   void setImageInfo();
   void setSoundInfo();
@@ -101,9 +108,47 @@ public:
   bool setLabel(TPropertyGroup *pg, int index, std::string type);
   void create(int index, QString str);
   void loadPalette(const TFilePath &path);
+  void applyEmbeddedStyle(bool embedded);
+  void constrainToWidth(int availableWidth);
+  void finishDisplay();
+  bool showGeneralFileInfoOnly(const TFilePath &path);
+  void setHistoryText(const QString &raw);
+
+  static QString manualWrap(const QString &text, const QFontMetrics &fm,
+                            int maxWidth) {
+    if (maxWidth <= 0 || text.isEmpty()) return text;
+    QString result;
+    int lineStart = 0;
+    int lastBreak = -1;
+    for (int i = 0; i < text.length(); ++i) {
+      QChar c = text[i];
+      if (c == '/' || c == '\\' || c == ' ' || c == ',' || c == ')')
+        lastBreak = i + 1;
+      int w = fm.horizontalAdvance(text.mid(lineStart, i - lineStart + 1));
+      if (w > maxWidth && i > lineStart) {
+        int cut = (lastBreak > lineStart) ? lastBreak : i;
+        result += text.mid(lineStart, cut - lineStart) + QChar('\n');
+        lineStart = cut;
+        lastBreak = -1;
+      }
+    }
+    result += text.mid(lineStart);
+    return result;
+  }
 
   inline void setVal(int index, const QString &str) {
-    m_labels[index].second->setText(str);
+    if (index < 0 || index >= (int)m_labels.size()) return;
+    if ((int)m_fullValues.size() < (int)m_labels.size())
+      m_fullValues.resize(m_labels.size());
+    m_fullValues[index] = str;
+    m_labels[index].second->setToolTip(str);
+    if (m_embeddedStyle && m_valueColumnWidth > 0) {
+      m_labels[index].second->setText(
+          manualWrap(str, m_labels[index].second->fontMetrics(),
+                     m_valueColumnWidth));
+    } else {
+      m_labels[index].second->setText(str);
+    }
   }
 
 public slots:
@@ -114,10 +159,9 @@ public slots:
 //----------------------------------------------------------------
 
 InfoViewer::InfoViewer(QWidget *parent)
-    : Dialog(parent), m_imp(new InfoViewerImp()) {
+    : Dialog(parent, false, true), m_imp(new InfoViewerImp()), m_embedded(false) {
   setWindowTitle(tr("File Info"));
   setWindowFlags(windowFlags() | Qt::WindowStaysOnTopHint);
-  // setAttribute(Qt::WA_DeleteOnClose);
 
   int i;
   for (i = 0; i < (int)m_imp->m_labels.size(); i++) {
@@ -136,11 +180,112 @@ InfoViewer::InfoViewer(QWidget *parent)
   hide();
 }
 
+//----------------------------------------------------------------
+
+void InfoViewer::setEmbedded(bool embedded) {
+  if (m_embedded == embedded) return;
+  m_embedded = embedded;
+  QWidget *parent = parentWidget();
+  QLayout *parentLayout = parent ? parent->layout() : nullptr;
+  if (embedded) {
+    setModal(false);
+    setWindowFlags(Qt::Widget);
+    setAlignment(Qt::AlignLeft | Qt::AlignTop);
+    setTopMargin(4);
+    setTopSpacing(2);
+    if (QLayout *lay = layout())
+      lay->setSizeConstraint(QLayout::SetNoConstraint);
+    if (m_mainFrame) {
+      m_mainFrame->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+      m_mainFrame->setMinimumWidth(0);
+      m_mainFrame->setMinimumHeight(0);
+    }
+    if (m_topLayout) {
+      m_topLayout->setSpacing(6);
+      m_topLayout->setContentsMargins(4, 4, 4, 4);
+      m_topLayout->setAlignment(Qt::AlignTop);
+      for (int i = 0; i < m_topLayout->count(); ++i) {
+        QBoxLayout *row =
+            qobject_cast<QBoxLayout *>(m_topLayout->itemAt(i)->layout());
+        if (!row) continue;
+        row->setDirection(QBoxLayout::TopToBottom);
+        row->setContentsMargins(0, 0, 0, 0);
+        row->setSpacing(0);
+      }
+    }
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    setMinimumWidth(0);
+  } else {
+    setWindowFlags(Qt::CustomizeWindowHint | Qt::WindowTitleHint |
+                   Qt::WindowCloseButtonHint | Qt::WindowStaysOnTopHint);
+    setAlignment(Qt::AlignCenter);
+    setTopMargin(12);
+    setTopSpacing(5);
+    if (QLayout *lay = layout()) lay->setSizeConstraint(QLayout::SetFixedSize);
+    if (m_topLayout) {
+      for (int i = 0; i < m_topLayout->count(); ++i) {
+        QBoxLayout *row =
+            qobject_cast<QBoxLayout *>(m_topLayout->itemAt(i)->layout());
+        if (!row) continue;
+        row->setDirection(QBoxLayout::LeftToRight);
+      }
+    }
+    setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+  }
+  m_imp->applyEmbeddedStyle(embedded);
+  if (parentLayout && parentLayout->indexOf(this) < 0)
+    parentLayout->addWidget(this);
+  else if (parent)
+    setParent(parent);
+}
+
 InfoViewer::~InfoViewer() {}
 
 //----------------------------------------------------------------
 
-void InfoViewer::hideEvent(QHideEvent *) { m_imp->m_level = TLevelP(); }
+QSize InfoViewer::sizeHint() const {
+  if (!m_embedded) return Dialog::sizeHint();
+  // Keep width narrow so the host QScrollArea owns horizontal sizing.
+  int h = m_topLayout ? m_topLayout->sizeHint().height() : 400;
+  return QSize(120, h);
+}
+
+//----------------------------------------------------------------
+
+QSize InfoViewer::minimumSizeHint() const {
+  if (!m_embedded) return Dialog::minimumSizeHint();
+  int h = m_topLayout ? m_topLayout->minimumSize().height() : 80;
+  return QSize(80, h);
+}
+
+//----------------------------------------------------------------
+
+void InfoViewer::resizeEvent(QResizeEvent *event) {
+  if (m_embedded) {
+    QWidget::resizeEvent(event);
+    int margins = 0;
+    if (m_topLayout) {
+      int l, r;
+      m_topLayout->getContentsMargins(&l, nullptr, &r, nullptr);
+      margins = l + r;
+    }
+    m_imp->constrainToWidth(qMax(80, width() - margins - 12));
+    return;
+  }
+  Dialog::resizeEvent(event);
+}
+
+//----------------------------------------------------------------
+
+void InfoViewer::hideEvent(QHideEvent *event) {
+  // Avoid Dialog::hideEvent geometry restore while embedded as a side panel.
+  if (m_embedded) {
+    QWidget::hideEvent(event);
+    return;
+  }
+  m_imp->m_level = TLevelP();
+  Dialog::hideEvent(event);
+}
 
 //----------------------------------------------------------------
 void InfoViewer::onSliderChanged(bool) { m_imp->onSliderChanged(); }
@@ -182,6 +327,7 @@ InfoViewerImp::InfoViewerImp()
   TSoundTrackReader::getSupportedFormats(m_formats);
 
   m_labels.resize(eHowMany);
+  m_fullValues.resize(eHowMany);
 
   create(eFullpath, QObject::tr("Fullpath:     "));
   create(eFileType, QObject::tr("File Type:    "));
@@ -240,6 +386,217 @@ void InfoViewerImp::clear() {
   for (i = 0; i < (int)m_labels.size(); i++) setVal(i, "");
 
   m_history.clear();
+}
+
+//----------------------------------------------------------------
+
+void InfoViewerImp::applyEmbeddedStyle(bool embedded) {
+  m_embeddedStyle = embedded;
+
+  if (embedded) {
+    m_history.setMinimumWidth(0);
+    m_history.setMaximumWidth(QWIDGETSIZE_MAX);
+    m_history.setMinimumHeight(0);
+    m_history.setMaximumHeight(QWIDGETSIZE_MAX);
+    m_history.setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_history.setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_history.setLineWrapMode(QTextEdit::WidgetWidth);
+    m_history.setStyleSheet("font-size: 12px;");
+    m_history.setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    m_historyLabel.setWordWrap(true);
+    m_historyLabel.setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+  } else {
+    m_history.setFixedWidth(490);
+    m_history.setMinimumHeight(0);
+    m_history.setMaximumHeight(QWIDGETSIZE_MAX);
+    m_history.setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_history.setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_history.setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+    m_historyLabel.setMaximumWidth(QWIDGETSIZE_MAX);
+    m_valueColumnWidth = 0;
+  }
+
+  for (auto &pair : m_labels) {
+    if (!pair.first || !pair.second) continue;
+    pair.first->setWordWrap(false);
+    pair.second->setWordWrap(false);
+    if (embedded) {
+      pair.first->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+      pair.second->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+      pair.second->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+    } else {
+      pair.first->setMaximumWidth(QWIDGETSIZE_MAX);
+      pair.second->setMaximumWidth(QWIDGETSIZE_MAX);
+      pair.first->setMinimumHeight(0);
+      pair.second->setMinimumHeight(0);
+      pair.first->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+      pair.second->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+    }
+  }
+
+  if (embedded) {
+    m_framesLabel.setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    m_framesSlider.setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_framesSlider.setMinimumHeight(24);
+  } else {
+    m_framesLabel.setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+    m_framesSlider.setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+  }
+}
+
+//----------------------------------------------------------------
+
+void InfoViewerImp::constrainToWidth(int availableWidth) {
+  if (availableWidth < 80) availableWidth = 80;
+  m_valueColumnWidth = availableWidth;
+
+  if ((int)m_fullValues.size() < (int)m_labels.size())
+    m_fullValues.resize(m_labels.size());
+  for (int i = 0; i < (int)m_labels.size(); ++i) {
+    if (m_labels[i].first) m_labels[i].first->setMaximumWidth(availableWidth);
+    if (!m_labels[i].second) continue;
+    m_labels[i].second->setMaximumWidth(availableWidth);
+    const QString &full = m_fullValues[i];
+    if (!full.isEmpty()) {
+      m_labels[i].second->setText(
+          manualWrap(full, m_labels[i].second->fontMetrics(), availableWidth));
+    }
+  }
+  m_framesLabel.setMaximumWidth(availableWidth);
+  m_framesSlider.setMaximumWidth(availableWidth);
+  m_historyLabel.setMaximumWidth(availableWidth);
+  m_history.setMaximumWidth(availableWidth);
+  m_separator1.setMaximumWidth(availableWidth);
+  m_separator2.setMaximumWidth(availableWidth);
+
+  if (m_embeddedStyle && !m_history.toPlainText().isEmpty()) {
+    QTextDocument *doc = m_history.document();
+    doc->setTextWidth(availableWidth - 4);
+    int h = (int)doc->size().height() + 6;
+    m_history.setFixedHeight(qMax(30, h));
+  }
+}
+
+//----------------------------------------------------------------
+
+void InfoViewerImp::setHistoryText(const QString &raw) {
+  // serialize() uses fixed-width columns bordered by '|', records by "||".
+  // Embedded mode reformats each record as stacked label/value lines.
+  QString cleaned = raw;
+  cleaned.remove('\n');
+  cleaned.remove(QChar(0));
+
+  if (!m_embeddedStyle) {
+    QString str = cleaned;
+    str         = str.replace("||", "\n");
+    str         = str.remove('|');
+    m_history.setPlainText(str);
+    return;
+  }
+
+  QStringList records = cleaned.split("||", Qt::SkipEmptyParts);
+  if (records.isEmpty()) {
+    m_history.clear();
+    return;
+  }
+
+  for (QString &rec : records) {
+    if (rec.startsWith('|')) rec = rec.mid(1);
+    if (rec.endsWith('|')) rec.chop(1);
+  }
+
+  const QString &header = records[0];
+  int dateCol    = header.indexOf("DATE:");
+  int machCol    = header.indexOf("MACHINE:");
+  int userCol    = header.indexOf("USER:");
+  int framesCol  = header.indexOf("FRAMES");
+  bool hasFrames = (framesCol >= 0);
+
+  QString result;
+  for (int r = 1; r < records.size(); ++r) {
+    const QString &line = records[r];
+    if (r > 1) result += "\n";
+
+    if (dateCol > 0 && dateCol <= line.length()) {
+      QString num = line.left(dateCol).trimmed();
+      if (!num.isEmpty()) result += num;
+    }
+
+    if (dateCol >= 0 && machCol > dateCol && machCol <= line.length()) {
+      QString datetime = line.mid(dateCol, machCol - dateCol).trimmed();
+      // Date and time are separated by three spaces in the serialized format.
+      int splitPos = datetime.indexOf(QStringLiteral("   "));
+      if (splitPos > 0) {
+        QString datePart = datetime.left(splitPos).trimmed();
+        QString timePart = datetime.mid(splitPos).trimmed();
+        if (!datePart.isEmpty()) result += "\n  Date: " + datePart;
+        if (!timePart.isEmpty()) result += "\n  Time: " + timePart;
+      } else if (!datetime.isEmpty()) {
+        result += "\n  Date: " + datetime;
+      }
+    }
+
+    if (machCol >= 0 && userCol > machCol && userCol <= line.length()) {
+      QString machine = line.mid(machCol, userCol - machCol).trimmed();
+      if (!machine.isEmpty()) result += "\n  Machine: " + machine;
+    }
+
+    int userEnd = hasFrames ? framesCol : line.length();
+    if (userCol >= 0 && userEnd > userCol && userCol < line.length()) {
+      QString user = line.mid(userCol, userEnd - userCol).trimmed();
+      if (!user.isEmpty()) result += "\n  User: " + user;
+    }
+
+    if (hasFrames && framesCol < line.length()) {
+      QString frames = line.mid(framesCol).trimmed();
+      if (!frames.isEmpty()) result += "\n  Frames: " + frames;
+    }
+  }
+
+  m_history.setPlainText(result);
+}
+
+//----------------------------------------------------------------
+
+void InfoViewerImp::finishDisplay() {
+  if ((int)m_fullValues.size() < (int)m_labels.size())
+    m_fullValues.resize(m_labels.size());
+
+  for (int i = 0; i < (int)m_labels.size(); i++) {
+    const bool empty = m_fullValues[i].isEmpty();
+    if (empty)
+      m_labels[i].first->hide(), m_labels[i].second->hide();
+    else
+      m_labels[i].first->show(), m_labels[i].second->show();
+  }
+
+  if (m_history.toPlainText() == "") {
+    m_separator2.hide();
+    m_historyLabel.hide();
+    m_history.hide();
+  } else {
+    m_separator2.show();
+    m_historyLabel.show();
+    m_history.show();
+  }
+}
+
+//----------------------------------------------------------------
+
+bool InfoViewerImp::showGeneralFileInfoOnly(const TFilePath &path) {
+  if (!TSystem::doesExistFileOrLevel(path)) return false;
+  m_path = path;
+  // Level paths (foo..tif) may not exist as a single QFileInfo entry.
+  QFileInfo fi(toQString(path));
+  if (fi.exists())
+    setGeneralFileInfo(path);
+  else {
+    setVal(eFullpath, toQString(path));
+    setVal(eFileType, getTypeString());
+    m_separator1.show();
+  }
+  finishDisplay();
+  return true;
 }
 
 //----------------------------------------------------------------
@@ -326,7 +683,11 @@ bool InfoViewerImp::setLabel(TPropertyGroup *pg, int index, std::string type) {
 //----------------------------------------------------------------
 
 void InfoViewerImp::setImageInfo() {
-  if (m_path != TFilePath() && !m_fids.empty())
+  if (m_fids.empty() || m_currentIndex < 0 ||
+      m_currentIndex >= (int)m_fids.size())
+    return;
+
+  if (m_path != TFilePath())
     setGeneralFileInfo(m_path.getType() == "tlv" || !m_path.isLevelName()
                            ? m_path
                            : m_path.withFrame(m_fids[m_currentIndex]));
@@ -378,12 +739,7 @@ void InfoViewerImp::setImageInfo() {
   if (lr) ch = lr->getContentHistory();
 
   if (ch) {
-    QString str = ch->serialize();
-    str         = str.remove('\n');
-    str         = str.remove(QChar(0));
-    str         = str.replace("||", "\n");
-    str         = str.remove('|');
-    m_history.setPlainText(str);
+    setHistoryText(ch->serialize());
   }
 
   TImageP img        = m_level->frame(m_fids[m_currentIndex]);
@@ -479,10 +835,37 @@ void InfoViewerImp::cleanLevelInfo() {}
 
 void InfoViewer::setItem(const TLevelP &level, TPalette *palette,
                          const TFilePath &path) {
-  if (m_imp->setItem(level, palette, path))
-    show();
-  else
-    hide();
+  // Prefer setVisible: QDialog::show() is not virtual and can float an
+  // embedded viewer.
+  if (m_imp->setItem(level, palette, path)) {
+    setVisible(true);
+    if (m_embedded) {
+      int margins = 0;
+      if (m_topLayout) {
+        int l, r;
+        m_topLayout->getContentsMargins(&l, nullptr, &r, nullptr);
+        margins = l + r;
+      }
+      m_imp->constrainToWidth(qMax(80, width() - margins - 12));
+      updateGeometry();
+      if (m_mainFrame) m_mainFrame->updateGeometry();
+      if (QWidget *host = parentWidget()) host->updateGeometry();
+      // Re-apply width after the host layout settles.
+      QTimer::singleShot(0, this, [this]() {
+        if (!m_embedded) return;
+        int m = 0;
+        if (m_topLayout) {
+          int l, r;
+          m_topLayout->getContentsMargins(&l, nullptr, &r, nullptr);
+          m = l + r;
+        }
+        m_imp->constrainToWidth(qMax(80, width() - m - 12));
+        updateGeometry();
+      });
+    }
+  } else if (!m_embedded) {
+    setVisible(false);
+  }
 }
 
 //----------------------------------------------------------------
@@ -500,12 +883,7 @@ void InfoViewerImp::setToonzSceneInfo() {
 
   TContentHistory *ch = scene.getContentHistory();
   if (ch) {
-    QString str = ch->serialize();
-    str         = str.remove('\n');
-    str         = str.remove(QChar(0));
-    str         = str.replace("||", "\n");
-    str         = str.remove('|');
-    m_history.setPlainText(str);
+    setHistoryText(ch->serialize());
   }
 
   TLevelSet *set           = scene.getLevelSet();
@@ -559,11 +937,15 @@ bool InfoViewerImp::setItem(const TLevelP &level, TPalette *palette,
   m_separator1.hide();
   m_separator2.hide();
 
+  m_formats.clear();
+  TLevelReader::getSupportedFormats(m_formats);
+  TSoundTrackReader::getSupportedFormats(m_formats);
+
   QString ext = QString::fromStdString(m_path.getType());
 
   if (m_path != TFilePath() && !m_formats.contains(ext) &&
       !Tiio::makeReader(m_path.getType())) {
-    // e' un file non  di immagine (plt, tnz, ...)
+    // Non-image file (plt, tnz, ...)
     assert(!m_level);
 
     if (!TSystem::doesExistFileOrLevel(m_path)) {
@@ -588,32 +970,38 @@ bool InfoViewerImp::setItem(const TLevelP &level, TPalette *palette,
     if (!m_level) {
       assert(m_path != TFilePath());
       TLevelReaderP lr;
+      // Retry with the literal path if TFilePath stripped a frame from the name.
       try {
         lr = TLevelReaderP(m_path);
       } catch (...) {
-        return false;
+        lr = TLevelReaderP();
+      }
+      if (!lr) {
+        try {
+          TFilePath literalPath(toQString(path).toStdWString());
+          lr = TLevelReaderP(literalPath);
+        } catch (...) {
+          lr = TLevelReaderP();
+        }
       }
       if (lr) {
         try {
           m_level = lr->loadInfo();
         } catch (...) {
-          return false;
+          m_level = TLevelP();
         }
       }
     }
 
-    if (m_level) {
-      // Image or level of images case
-
-      // TLVs are not intended as movie file here (why?). Neither are those
+    if (m_level && m_level->getFrameCount() > 0) {
       bool isMovieFile =
           (ext != "tlv" && m_formats.contains(ext) && !m_path.isLevelName());
 
       m_frameCount = m_level->getFrameCount();
-      assert(m_frameCount);
       m_fids.resize(m_frameCount);
       TLevel::Iterator it = m_level->begin();
-      for (i = 0; it != m_level->end(); ++it, ++i) m_fids[i] = it->first;
+      for (i = 0; it != m_level->end() && i < m_frameCount; ++it, ++i)
+        m_fids[i] = it->first;
 
       if (m_frameCount > 1 && !isMovieFile) {
         m_framesSlider.setRange(1, m_frameCount);
@@ -623,27 +1011,75 @@ bool InfoViewerImp::setItem(const TLevelP &level, TPalette *palette,
       }
 
       setImageInfo();
-    } else
-      return false;
+    } else {
+      setGeneralFileInfo(m_path);
+      TLevelReaderP lr2;
+      try {
+        lr2 = TLevelReaderP(m_path);
+      } catch (...) {
+      }
+      if (lr2) {
+        try {
+          TLevelP lvl = lr2->loadInfo();
+          if (lvl && lvl->getFrameCount() > 0) {
+            setVal(eFrames, QString::number(lvl->getFrameCount()));
+            m_level      = lvl;
+            m_frameCount = lvl->getFrameCount();
+            m_fids.resize(m_frameCount);
+            TLevel::Iterator it2 = lvl->begin();
+            for (int j = 0; it2 != lvl->end() && j < m_frameCount; ++it2, ++j)
+              m_fids[j] = it2->first;
+            if (m_frameCount > 1) {
+              m_framesSlider.setRange(1, m_frameCount);
+              m_framesSlider.setValue(0);
+              m_framesSlider.show();
+              m_framesLabel.show();
+            }
+          }
+        } catch (...) {
+        }
+        try {
+          const TImageInfo *ii = lr2->getImageInfo(TFrameId(1));
+          if (!ii) ii = lr2->getImageInfo(TFrameId::NO_FRAME);
+          if (ii) {
+            setVal(eImageSize, QString::number(ii->m_lx) + " X " +
+                                   QString::number(ii->m_ly));
+            if (ii->m_x0 <= ii->m_x1)
+              setVal(eSaveBox,
+                     "(" + QString::number(ii->m_x0) + ", " +
+                         QString::number(ii->m_y0) + ", " +
+                         QString::number(ii->m_x1) + ", " +
+                         QString::number(ii->m_y1) + ")");
+            if (ii->m_bitsPerSample > 0)
+              setVal(eBitsSample, QString::number(ii->m_bitsPerSample));
+            if (ii->m_samplePerPixel > 0)
+              setVal(eSamplePixel, QString::number(ii->m_samplePerPixel));
+            if (ii->m_dpix > 0 || ii->m_dpiy > 0)
+              setVal(eDpi, "(" + QString::number(ii->m_dpix) + ", " +
+                               QString::number(ii->m_dpiy) + ")");
+            TPropertyGroup *pg = ii->m_properties;
+            if (pg) {
+              setLabel(pg, eOrientation, "Orientation");
+              if (!setLabel(pg, eCompression, "Compression") &&
+                  !setLabel(pg, eCompression, "Compression Type") &&
+                  !setLabel(pg, eCompression, "RLE-Compressed"))
+                setLabel(pg, eCompression, "File Compression");
+              setLabel(pg, eQuality, "Quality");
+              setLabel(pg, eSmoothing, "Smoothing");
+              setLabel(pg, eCodec, "Codec");
+              setLabel(pg, eAlphaChannel, "Alpha Channel");
+              setLabel(pg, eByteOrdering, "Byte Ordering");
+              setLabel(pg, eEndianness, "Endianness");
+            }
+          }
+        } catch (...) {
+        }
+      }
+    }
   }
 
   if (m_palette) setPaletteInfo();
 
-  for (i = 0; i < (int)m_labels.size(); i++)
-    if (m_labels[i].second->text() == "")
-      m_labels[i].first->hide(), m_labels[i].second->hide();
-    else
-      m_labels[i].first->show(), m_labels[i].second->show();
-
-  if (m_history.toPlainText() == "") {
-    m_separator2.hide();
-    m_historyLabel.hide();
-    m_history.hide();
-  } else {
-    m_separator2.show();
-    m_historyLabel.show();
-    m_history.show();
-  }
-
+  finishDisplay();
   return true;
 }

@@ -192,9 +192,10 @@ enum BrowserAdvancedGuiPart {
   AGUI_Favorites       = 0x80,
   AGUI_FavoriteStars   = 0x100,
   AGUI_ProjectFolders  = 0x200,
+  AGUI_InfoPanel       = 0x400,
   AGUI_All = AGUI_SizeSlider | AGUI_SizeMenu | AGUI_Background | AGUI_TypeFilters |
              AGUI_Search | AGUI_PlayFps | AGUI_TypeFilterList | AGUI_Favorites |
-             AGUI_FavoriteStars | AGUI_ProjectFolders,
+             AGUI_FavoriteStars | AGUI_ProjectFolders | AGUI_InfoPanel,
 };
 
 TEnv::IntVar BrowserView("BrowserView", 1);
@@ -2433,6 +2434,7 @@ DvItemViewerButtonBar::DvItemViewerButtonBar(DvItemViewer *itemViewer,
     , m_bgTransparentAct(nullptr)
     , m_bgCheckeredAct(nullptr)
     , m_sizeMenuAct(nullptr)
+    , m_infoPanelAct(nullptr)
     , m_sizeSliderAct(nullptr)
     , m_fpsAct(nullptr)
     , m_typeFilterListAct(nullptr)
@@ -2558,7 +2560,7 @@ DvItemViewerButtonBar::DvItemViewerButtonBar(DvItemViewer *itemViewer,
   if (m_guiPartsFlag == 0) m_guiPartsFlag = AGUI_All;
   m_guiPartsFlag &= AGUI_All;  // drop legacy per-type filter visibility bits
   // New part: default on for profiles saved before it existed.
-  m_guiPartsFlag |= AGUI_ProjectFolders;
+  m_guiPartsFlag |= AGUI_ProjectFolders | AGUI_InfoPanel;
   if (m_advancedDisplayAct) {
     m_advancedDisplayAct->blockSignals(true);
     m_advancedDisplayAct->setChecked(advanced);
@@ -2650,6 +2652,7 @@ void DvItemViewerButtonBar::uniformAdvancedIconButtons() {
   styleAdvancedIconWidget(m_sizeMenuBtn);
   styleAdvancedIconWidget(m_typeFilterListBtn);
   styleAdvancedIconWidget(m_fpsBtn);
+  styleAdvancedIconButton(m_infoPanelAct);
   for (QAction *act : m_typeFilterActs) styleAdvancedIconButton(act);
 }
 
@@ -2681,8 +2684,10 @@ void DvItemViewerButtonBar::refreshAdvancedControlsVisibility() {
   const bool showFavorites = partOn(AGUI_Favorites) && isBrowser;
   const bool showFps       = partOn(AGUI_PlayFps) && isBrowser;
   const bool showProjectFolders = partOn(AGUI_ProjectFolders) && isBrowser;
+  const bool showInfoPanel      = partOn(AGUI_InfoPanel) && isBrowser;
   const bool anyPart = showSlider || showMenu || showBg || showTypes || showSearch ||
-                       showFavorites || showFps || showProjectFolders;
+                       showFavorites || showFps || showProjectFolders ||
+                       showInfoPanel;
 
   // Keep the advanced cluster centered (spacers left and right).
   if (m_leftSpacerAct) m_leftSpacerAct->setVisible(anyPart);
@@ -2690,6 +2695,7 @@ void DvItemViewerButtonBar::refreshAdvancedControlsVisibility() {
   if (m_advancedSep) m_advancedSep->setVisible(anyPart);
   if (m_sizeSliderAct) m_sizeSliderAct->setVisible(showSlider);
   if (m_sizeMenuAct) m_sizeMenuAct->setVisible(showMenu);
+  if (m_infoPanelAct) m_infoPanelAct->setVisible(showInfoPanel);
   if (m_bgSep) m_bgSep->setVisible(showMenu && showBg);
   if (m_bgWhiteAct) m_bgWhiteAct->setVisible(showBg);
   if (m_bgBlackAct) m_bgBlackAct->setVisible(showBg);
@@ -2743,6 +2749,21 @@ QString folderMonogramLabel(const QString &folderName) {
   return folderName.left(1).toUpper();
 }
 }  // namespace
+
+void DvItemViewerButtonBar::setInfoPanelChecked(bool checked) {
+  if (!m_infoPanelAct) return;
+  m_infoPanelAct->blockSignals(true);
+  m_infoPanelAct->setChecked(checked);
+  m_infoPanelAct->blockSignals(false);
+}
+
+//-----------------------------------------------------------------------------
+
+void DvItemViewerButtonBar::setInfoPanelEnabled(bool enabled) {
+  if (m_infoPanelAct) m_infoPanelAct->setEnabled(enabled);
+}
+
+//-----------------------------------------------------------------------------
 
 void DvItemViewerButtonBar::refreshProjectFolderShortcuts() {
   QVector<QPair<QString, TFilePath>> folders;
@@ -3128,6 +3149,13 @@ void DvItemViewerButtonBar::buildAdvancedControls() {
   // Matching left spacer — centers the whole advanced cluster.
   m_rightSpacerAct = addWidget(makeSpacer());
 
+  if (m_itemViewer->m_windowType == DvItemViewer::Browser) {
+    m_infoPanelAct = addAction(createQIcon("info"), tr("File Info"));
+    m_infoPanelAct->setCheckable(true);
+    m_infoPanelAct->setEnabled(true);
+    m_infoPanelAct->setToolTip(tr("File Info"));
+  }
+
   uniformAdvancedIconButtons();
 
   m_advancedDisplayAct = new QAction(tr("Advanced Display"), this);
@@ -3208,6 +3236,7 @@ void DvItemViewerButtonBar::addGuiShowHideMenu(QMenu *menu) {
       {AGUI_PlayFps, QT_TR_NOOP("Playback FPS")},
       {AGUI_Search, QT_TR_NOOP("Search")},
       {AGUI_ProjectFolders, QT_TR_NOOP("Project Folders")},
+      {AGUI_InfoPanel, QT_TR_NOOP("Info Panel")},
   };
 
   QActionGroup *group = new QActionGroup(showHideMenu);
