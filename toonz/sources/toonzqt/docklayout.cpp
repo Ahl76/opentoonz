@@ -1024,8 +1024,8 @@ void DockLayout::normalizeSingleDockedPanel(DockWidget *item) {
   item->m_floating = false;
   item->onDock(true);
 
-  // setWindowFlags can re-hide children on Windows; restore title last and
-  // force a visible, raised docked panel so it never stays grey/inert.
+  // setWindowFlags can re-hide children on Windows, so restore the title bar
+  // last and show the panel explicitly.
   restorePanelTitleBar(item);
   if (QLayout *l = item->layout()) l->activate();
   item->show();
@@ -1185,30 +1185,6 @@ bool DockLayout::canMergeAsTabs(DockWidget *item, DockWidget *target) const {
 
 //------------------------------------------------------
 
-//! Returns the region holding \b target, docking it first if it is still
-//! floating: a merge target must be part of the region tree.
-Region *DockLayout::ensureDockedRegionForTarget(DockWidget *target) {
-  if (Region *region = find(target)) return region;
-  if (!target->isFloating() || !parentWidget()) return 0;
-
-  // Dock the target next to whichever panel sits under its center.
-  const QPoint layoutPt =
-      parentWidget()->mapFromGlobal(target->geometry().center());
-  DockWidget *anchor = dynamic_cast<DockWidget *>(containerOf(layoutPt));
-
-  if (anchor && anchor != target) {
-    if (Region *anchorRegion = find(anchor)) {
-      addPanelToTabGroup(target, anchorRegion);
-      if (Region *region = find(target)) return region;
-    }
-  }
-
-  dockItemPrivate(target, 0, 0);
-  return find(target);
-}
-
-//------------------------------------------------------
-
 //! Takes \b item out of whatever holds it now, so that it can be appended to
 //! \b destination. Returns false when the panel already belongs there.
 bool DockLayout::detachPanelFromCurrentRegion(DockWidget *item,
@@ -1230,7 +1206,7 @@ bool DockLayout::detachPanelFromCurrentRegion(DockWidget *item,
 void DockLayout::mergePanelsAsTabs(DockWidget *item, DockWidget *target) {
   if (!canMergeAsTabs(item, target)) return;
 
-  Region *targetRegion = ensureDockedRegionForTarget(target);
+  Region *targetRegion = find(target);
   if (!targetRegion || targetRegion->containsPanel(item)) return;
 
   if (!detachPanelFromCurrentRegion(item, targetRegion)) return;
@@ -1247,12 +1223,14 @@ void DockLayout::mergePanelsAsTabs(DockWidget *item, DockWidget *target) {
 
 //------------------------------------------------------
 
+//! Returns the docked panel whose drag grip lies under \b globalPos.
+//! Floating panels are not merge targets.
 DockWidget *DockLayout::dockWidgetTitleBarAt(const QPoint &globalPos) const {
   if (!parentWidget()) return 0;
 
   for (int i = count() - 1; i >= 0; --i) {
     DockWidget *dw = static_cast<DockWidget *>(itemAt(i)->widget());
-    if (!dw || !supportsTabGrouping(dw)) continue;
+    if (!dw || dw->isFloating() || !supportsTabGrouping(dw)) continue;
 
     QPoint localPos = dw->mapFromGlobal(globalPos);
     if (dw->rect().contains(localPos) && dw->isDragGrip(localPos)) return dw;
@@ -2160,13 +2138,13 @@ DockLayout::State DockLayout::saveState() {
 //------------------------------------------------------
 
 //! Reads the body of a tab group - the tokens after '{' up to '}' - into
-//! \b region, starting at \b pos. Groups left with a single valid member are
-//! normalized into a plain single-panel region by Region::setTabGroup().
+//! \b region, starting at \b pos. Input that does not match the grammar is
+//! rejected, not repaired.
 bool DockLayout::parseTabGroup(const QStringList &tokens, int &pos,
                                Region *region,
                                std::vector<bool> &alreadyRestored) const {
   std::vector<DockWidget *> panels;
-  int activeIndex = 0;
+  int activeIndex = -1;
   bool closed     = false;
 
   for (; pos < tokens.size(); ++pos) {
@@ -2178,8 +2156,9 @@ bool DockLayout::parseTabGroup(const QStringList &tokens, int &pos,
 
     bool tokenIsOk = false;
     if (token.startsWith(QLatin1Char('@'))) {
+      if (activeIndex >= 0) return false;
       activeIndex = token.mid(1).toInt(&tokenIsOk);
-      if (!tokenIsOk) return false;
+      if (!tokenIsOk || activeIndex < 0) return false;
       continue;
     }
 
@@ -2192,7 +2171,8 @@ bool DockLayout::parseTabGroup(const QStringList &tokens, int &pos,
     panels.push_back(static_cast<DockWidget *>(m_items[panelIndex]->widget()));
   }
 
-  if (!closed || panels.empty()) return false;
+  if (!closed || panels.size() < 2) return false;
+  if (activeIndex < 0 || activeIndex >= (int)panels.size()) return false;
 
   region->setTabGroup(panels, activeIndex);
   return true;
@@ -2274,8 +2254,12 @@ bool DockLayout::restoreState(const State &state) {
 
   if (expectsHierarchy) {
     // Scan hierarchy
-    Region *r             = 0;
-    const int orientation = !tokens[1].toInt();
+    Region *r                  = 0;
+    bool orientationIsOk       = false;
+    const int savedOrientation = tokens[1].toInt(&orientationIsOk);
+    if (!orientationIsOk || (savedOrientation != 0 && savedOrientation != 1))
+      return false;
+    const int orientation = !savedOrientation;
 
     for (int i = 2; i < tokens.size(); ++i) {
       const QString &token = tokens[i];
@@ -2288,6 +2272,12 @@ bool DockLayout::restoreState(const State &state) {
         }
         r = r->getParent();
         continue;
+      }
+
+      // The grammar allows a single root region.
+      if (!r && !newHierarchy.empty()) {
+        malformed = true;
+        break;
       }
 
       Region *newRegion = new Region(this);
@@ -2456,9 +2446,8 @@ bool DockLayout::restoreState(const State &state) {
 
 //------------------------------------------------------
 
-//! Hidden tabs may have been saved with stale geometries from before they
-//! were merged; align every member of a group on its active tab before the
-//! region tree is rebuilt from leaf widget rects.
+//! Hidden tabs may have been saved with geometries from before they were
+//! merged, so align every member of a group on its active tab.
 void DockLayout::normalizeRestoredTabGeometries() {
   for (unsigned int i = 0; i < m_regions.size(); ++i) {
     Region *region = m_regions[i];
@@ -2490,10 +2479,8 @@ void Region::restoreGeometry() {
     DockWidget *active = activeTab();
     if (!active) return;
 
-    // applyGeometry() stores panel widgets below the tab strip. Saved
-    // geometries therefore describe the content rect, not the full region.
-    // Expand upward so restore + applyGeometry land the strip and panels
-    // where they were when the layout was saved.
+    // Panels sit below the tab strip, so a saved panel rect describes the
+    // content area rather than the region. Expand upward to get the region.
     QRect g = active->geometry();
     g.setTop(g.top() - m_owner->tabStripHeight());
     setGeometry(g);

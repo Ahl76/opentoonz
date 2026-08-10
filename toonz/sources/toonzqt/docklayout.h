@@ -192,7 +192,6 @@ private:
   // Steps of mergePanelsAsTabs(). These only mutate the region tree; the
   // public operation performs the single closing layout update.
   bool canMergeAsTabs(DockWidget *item, DockWidget *target) const;
-  Region *ensureDockedRegionForTarget(DockWidget *target);
   bool detachPanelFromCurrentRegion(DockWidget *item, Region *destination);
   void addPanelToTabGroup(DockWidget *item, Region *region);
 
@@ -589,11 +588,9 @@ class Region {
 
   int m_saveIndex;
 
-  // Tab group membership. A group always holds at least two panels: a
-  // shorter list is normalized into a single-panel region by setTabGroup().
-  // Invariant: m_item is either the region's only panel, or - for a tab
-  // group - a mirror of the active tab, so that code walking leaf regions
-  // keeps seeing the panel that is actually on screen.
+  // A tab group holds at least two panels; setTabGroup() normalizes shorter
+  // lists into a single-panel region. Invariant: m_item mirrors the active
+  // tab, so code walking leaf regions still sees the panel on screen.
   std::vector<DockWidget *> m_tabItems;
   int m_activeTabIndex;
   // The tab strip is a child widget of the layout's parent; the region only

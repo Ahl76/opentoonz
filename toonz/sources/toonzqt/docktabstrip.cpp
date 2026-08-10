@@ -15,10 +15,8 @@ const int DockTabStrip::kUndockDragThreshold = 8;
 
 namespace {
 
-//! Accent color published by the active theme in its :TOONZCOLORS block, the
-//! same channel the icon colors go through. ThemeManager re-reads it whenever
-//! the stylesheet changes, so switching themes needs no restart. The fallback
-//! only ever applies to third-party themes written before the property.
+//! Accent color published by the active theme in its :TOONZCOLORS block,
+//! like the icon colors. The fallback covers themes that predate it.
 QColor themeAccentColor() {
   static const QColor fallback(0x4f, 0x7b, 0xc7);
   return ThemeManager::getInstance().getCustomPropertyColor("hl-color",
@@ -121,10 +119,8 @@ void DockTabStrip::onCurrentChanged(int index) {
 
 //-------------------------------------
 
-// Force every tab to share the strip's width equally (Qt's setExpanding
-// only scales sizeHint-based widths, which keeps long titles wide and short
-// ones squeezed). A floor keeps many tabs readable and lets the strip's
-// scroll buttons take over instead of shrinking tabs further.
+// Equal widths, which setExpanding() does not give: it scales the sizeHint,
+// so long titles stay wide. Below the floor the strip scrolls instead.
 QSize DockTabStrip::tabSizeHint(int index) const {
   QSize hint           = QTabBar::tabSizeHint(index);
   const int tabCount   = count();
@@ -291,7 +287,7 @@ void DockTabStrip::mouseMoveEvent(QMouseEvent *event) {
     const bool outsideStrip   = isOutsideTabStrip(event->globalPos());
     const bool verticalIntent = std::abs(delta.y()) > std::abs(delta.x());
 
-    // Same spirit as docked title-bar undock: any significant move can detach.
+    // Matches docked title-bar undock: any significant move detaches.
     // Horizontal moves inside the strip preview a reorder instead.
     if (outsideStrip || verticalIntent) {
       tryBeginDragOut(event->globalPos());

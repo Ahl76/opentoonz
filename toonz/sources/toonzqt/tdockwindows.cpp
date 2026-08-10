@@ -232,9 +232,8 @@ bool TDockWidget::isDragGrip(QPoint p) {
 
   if (m_titlebar->isVisible()) return m_titlebar->geometry().contains(p);
 
-  // Recovery path: a tab-group bug may leave the title bar hidden on a
-  // standalone / floating panel. Keep the top strip draggable so the panel
-  // is not permanently stuck without a grip.
+  // Fallback while the title bar is hidden, so a panel can never end up
+  // with no draggable area at all.
   return QRect(0, 0, width(), 18).contains(p);
 }
 

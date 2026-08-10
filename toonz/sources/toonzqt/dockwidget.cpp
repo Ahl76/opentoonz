@@ -311,11 +311,9 @@ QWidget *DockWidget::dragGrip() {
 
 //-------------------------------------
 
-//! Offset of the drag grip inside the panel, measured once the pending
-//! docked/floating appearance change has actually been laid out: the custom
-//! title bar may end up shifted by a frame margin that only exists in one of
-//! the two states, and assuming a fixed margin makes the panel jump under
-//! the cursor.
+//! Offset of the drag grip inside the panel, measured after the pending
+//! docked/floating transition has been laid out: the grip may shift by a
+//! frame margin that only exists in one of the two states.
 QPoint DockWidget::settledDragGripOffset() {
   if (QLayout *l = layout()) l->activate();
   return dragGrip()->mapToGlobal(QPoint(0, 0)) - mapToGlobal(QPoint(0, 0));
@@ -352,8 +350,8 @@ void DockWidget::mouseMoveEvent(QMouseEvent *me) {
 
     m_dragMouseInitialPos = correctedGlobalPos;
   } else if (m_dragging) {
-    // Qt::Tool floating panels: pos()/move() are in screen coordinates.
-    // Do not map through parentWidget() — that caused the title-bar grab jump.
+    // Qt::Tool floating panels: pos()/move() are in screen coordinates, so
+    // mapping through parentWidget() would offset the grab point.
     move(m_dragInitialPos + correctedGlobalPos - m_dragMouseInitialPos);
     selectDockPlaceholder(me);
   } else if (m_undocking) {
@@ -532,8 +530,8 @@ DockPlaceholder *DockWidget::placeOfSeparator(DockSeparator *sep) {
 void DockWidget::selectDockPlaceholder(QMouseEvent *me) {
   DockPlaceholder *selected = 0;
 
-  // Classic split docking takes precedence: its drop zones are what users
-  // expect from the borders of a panel, tab joining only fills the gap.
+  // Classic split docking takes precedence; tab joining is only tested where
+  // no split drop zone applies.
   unsigned int i;
   for (i = 0; i < m_placeholders.size(); ++i) {
     if (m_placeholders[i]->getAttribute() == DockPlaceholder::tabJoinTarget)
