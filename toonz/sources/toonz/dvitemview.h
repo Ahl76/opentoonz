@@ -301,7 +301,7 @@ public:
   // exposed view parameters
   void setIconSize(QSize size);
   QSize getRenderIconSize() const { return m_renderIconSize; }
-  //! Previous committed HD size — used to soft-scale while the new size generates.
+  //! Previous committed size (soft-scale while the next one generates).
   QSize getPrevRenderIconSize() const { return m_prevRenderIconSize; }
   ThumbnailBgMode getThumbnailBgMode() const { return m_thumbnailBgMode; }
   void setThumbnailBgMode(ThumbnailBgMode mode);

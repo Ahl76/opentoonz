@@ -103,7 +103,7 @@ namespace ba = boost::adaptors;
 
 namespace {
 
-//! Render a theme SVG at \p size (cached). Avoids upscaling a tiny static pixmap.
+//! Theme SVG at \p size (cached).
 QPixmap browserThemeSvgIcon(const QString &iconName, const QSize &size) {
   static QHash<QString, QPixmap> cache;
   const QString key = iconName + QLatin1Char('@') + QString::number(size.width()) +
@@ -1147,8 +1147,7 @@ QVariant FileBrowser::getItemData(int index, DataType dataType,
     DvItemViewerPanel *panel = m_itemViewer->getPanel();
     QSize iconSize           = panel->getIconSize();
     QSize renderSize         = panel->getRenderIconSize();
-    // Folder decorations: re-render SVG at the live cell size (never upscale a
-    // tiny cached pixmap — that was the source of pixelation at large sizes).
+    // Folder icons: render SVG at the live cell size.
     if (item.m_path == m_folder.getParentDir()) {
       return browserThemeSvgIcon(QStringLiteral("folder_browser_up"), iconSize);
     } else if (item.m_isFolder) {
@@ -1158,10 +1157,7 @@ QVariant FileBrowser::getItemData(int index, DataType dataType,
       return browserThemeSvgIcon(QStringLiteral("folder_browser"), iconSize);
     }
 
-    // Level Strip–style HD cache: request the committed renderSize. While the
-    // new size is still generating, soft-scale the previous HD cache entry
-    // (peek only — never enqueue a second size). Avoids soft 80×60 flash and
-    // duplicate PLI/OfflineGL work during slider commits.
+    // Request committed renderSize; peek previous size while it generates.
     QPixmap pixmap;
     const int bgMode = [&]() {
       int mode = panel->isAdvancedDisplay()
@@ -1286,10 +1282,8 @@ int FileBrowser::findIndexWithPath(TFilePath path) {
 void FileBrowser::storePersistedSelection() {
   FileSelection *fs =
       dynamic_cast<FileSelection *>(m_itemViewer->getPanel()->getSelection());
-  // Keep the last non-empty snapshot (room switch may clear indices before
-  // showEvent runs).
+  // Ignore empty clears so a later restore still has paths.
   if (!fs || fs->isEmpty()) return;
-  // Prefer paths from the live item list (indices are authoritative here).
   const std::set<int> &indices = fs->getSelectedIndices();
   std::vector<TFilePath> paths;
   paths.reserve(indices.size());
@@ -2721,7 +2715,7 @@ void FileBrowser::updateInfoThumbnail(const TFilePath &fp) {
   const int req    = qMax(128, ((wanted + bucket - 1) / bucket) * bucket);
   m_infoThumbReqSize = QSize(req, req);
 
-  // getSizedIcon queues HD; getIcon is the interim fallback.
+  // Prefer sized icon; fall back to the default cache.
   QPixmap px = IconGenerator::instance()->getSizedIcon(fp, TDimension(req, req));
   if (px.isNull()) px = IconGenerator::instance()->getIcon(fp);
   if (px.isNull()) {
@@ -2954,8 +2948,7 @@ void FileBrowser::newFolder() {
 void FileBrowser::showEvent(QShowEvent *) {
   activeBrowsers.insert(this);
 
-  // Capture selection before force-refresh (also kept in m_persistedSelection
-  // via onSelectedItems / hideEvent).
+  // Snapshot selection before the folder force-refresh.
   storePersistedSelection();
 
   // refresh
@@ -2965,8 +2958,7 @@ void FileBrowser::showEvent(QShowEvent *) {
     setHistoryDay(getDayDateString());
   m_folderTreeView->scrollTo(m_folderTreeView->currentIndex());
 
-  // Defer restore: room switch clears the global selection handle and the
-  // folder refresh remaps indices — run after those settle.
+  // Restore after folder refresh remaps indices.
   QTimer::singleShot(0, this, [this]() { restorePersistedSelection(); });
 
   // Refresh SVN

@@ -67,7 +67,7 @@ constexpr int kBrowserBgAuto = 4;
 IconGenerator::Settings browserFileIconSettings(int browserBgMode) {
   IconGenerator::Settings s;
   if (browserBgMode == kBrowserBgAuto) return s;  // Auto: official opaque icons
-  // Explicit bg modes: UI fill + transparent letterbox in the icon cache.
+  // Forced bg: transparent letterbox; UI draws the fill.
   s.m_transparentBg = true;
   s.m_blackBgCheck  = (browserBgMode == 2);  // BgBlack
   return s;
@@ -131,8 +131,7 @@ bool getIcon(const std::string &iconName, QPixmap &pix,
     }
     assert(!(TRasterGR8P)img->getRaster());
     const TRaster32P ras = img->getRaster();
-    // Corrupt / half-evicted cache entry (seen after memory pressure while
-    // scrubbing the File Browser size slider) — drop and allow re-request.
+    // Invalid cache entry: drop it so the icon can be requested again.
     if (!ras || ras->getLx() <= 0 || ras->getLy() <= 0) {
       TImageCache::instance()->remove(iconName);
       iconsMap.erase(iconName);
@@ -185,7 +184,7 @@ void removeIcon(const std::string &iconName) {
 }
 
 //-----------------------------------------------------------------------------
-/*! Remove sized cache entries (suffix "_r_WxH") for Level Strip / File Browser. */
+/*! Remove sized cache entries (suffix "_r_WxH"). */
 void removeResponsiveSizedIcons(const std::string &baseId) {
   const std::string prefix = baseId + "_r_";
   std::vector<std::string> toRemove;
@@ -239,11 +238,7 @@ void makeChessBackground(const TRaster32P &ras) {
 }
 
 //-----------------------------------------------------------------------------
-/*! Project into exactly \p iconSize at the origin.
-    The per-thread OfflineGL buffer may be larger than the current request
-    (we grow but never destroy it). Using the full-buffer ortho while only
-    reading an iconSize sub-rect produced soft / wrong File Browser HD thumbs.
-*/
+/*! Ortho/viewport for \p iconSize. TLS OfflineGL may be larger than the request. */
 void prepareIconGL(TOfflineGL *glContext, const TDimension &iconSize) {
   if (!glContext || iconSize.lx <= 0 || iconSize.ly <= 0) return;
   glContext->makeCurrent();
@@ -276,8 +271,7 @@ TRaster32P convertToIcon(TVectorImageP vimage, int frame,
   if (!plt) return TRaster32P();
   plt->setFrame(frame);
 
-  // Must be >= iconSize: vector icons are drawn into this OfflineGL buffer.
-  // getSizedIcon requests sizes above FilmstripIconSize / 80x60.
+  // OfflineGL buffer must cover iconSize for getSizedIcon requests.
   TOfflineGL *glContext =
       IconGenerator::instance()->getOfflineGLContext(iconSize);
 
@@ -327,9 +321,8 @@ TRaster32P convertToIcon(TVectorImageP vimage, int frame,
   rd.m_ink1CheckColor  = pref->getInk1CheckColor();
   rd.m_paintCheckColor = pref->getPaintCheckColor();
 
-  // Draw the vector image to the offline GL context.
-  // clear()/makeCurrent can leave a full-buffer projection when the TLS
-  // OfflineGL is larger than this icon — set iconSize projection AFTER clear.
+  // Set iconSize projection after clear: a larger TLS OfflineGL would
+  // otherwise keep a full-buffer projection.
   glContext->makeCurrent();
   if (settings.m_transparentBg)
     glContext->clear(TPixel32::Transparent);
@@ -1047,7 +1040,7 @@ std::string FileIconRenderer::getId(const TFilePath &path, const TFrameId &fid,
   std::string id;
 
   auto withSizeSuffix = [&iconSize, browserBgMode](std::string base) {
-    // Type icons are re-rendered at iconSize — must not share the 80x60 cache.
+    // Type icons are sized; do not share the default-size cache key.
     if (iconSize.lx != 80 || iconSize.ly != 60)
       base += "_r_" + std::to_string(iconSize.lx) + "x" +
               std::to_string(iconSize.ly);
@@ -1150,8 +1143,8 @@ TRaster32P IconGenerator::generateRasterFileIcon(const TFilePath &path,
       if (shrink > 1) ir->setShrink(shrink);
     }
     bool isDll = QCoreApplication::applicationName() == "ToonzPreview";
-    // loadIcon() returns a small precomputed preview — fine for 80x60, but soft
-    // when the File Browser requests a larger HD thumbnail. Use the full frame.
+    // loadIcon() is only sharp enough for small thumbs; use the full frame
+    // when a larger size is requested.
     const bool tlvSmallIcon = toUpper(path.getType()) == "TLV" && !isDll &&
                               iconSize.lx <= 80 && iconSize.ly <= 60;
     img = tlvSmallIcon ? ir->loadIcon() : ir->load();
@@ -1214,14 +1207,13 @@ Qt::transparent)
 
   TAffine aff = TScale(sc).place(ras32->getCenterD(), icon->getCenterD());
 
-  // Fill letterbox before resample (official File Browser icon pipeline).
+  // Fill letterbox before resample.
   if (settings.m_transparentBg)
     icon->clear();
   else
     icon->fill(TPixel32::Magenta);
 
-  // ClosestPixel is sharp for tiny thumbs; Bilinear looks better for large
-  // File Browser / movie ("output") previews when downscaling full frames.
+  // ClosestPixel for small thumbs; Triangle when downscaling to larger ones.
   const TRop::ResampleFilterType filter =
       (iconSize.lx > 80 || iconSize.ly > 60) ? TRop::Triangle
                                              : TRop::ClosestPixel;
@@ -1301,8 +1293,7 @@ void FileIconRenderer::run() {
   TDimension iconSize(getIconSize());
   const QSize qSize(iconSize.lx, iconSize.ly);
 
-  // Render vector/type decorations at the requested pixel size (avoids
-  // upscaling a tiny default SVG/PNG when the File Browser uses large thumbs).
+  // Render decorations at the requested size instead of upscaling a tiny SVG.
   auto setSvgDecoration = [this, &qSize](const QString &svgPath) {
     QImage img =
         svgToImage(svgPath, qSize, Qt::KeepAspectRatio, Qt::transparent);
@@ -1481,14 +1472,8 @@ TDimension IconGenerator::getIconSize() const { return FilmstripIconSize; }
 //-----------------------------------------------------------------------------
 
 TOfflineGL *IconGenerator::getOfflineGLContext(const TDimension &minSize) {
-  // Buffer must match the requested icon size: ortho/viewport are the full
-  // OfflineGL dimensions, while convertToIcon draws into TRect(iconSize) and
-  // getRaster(iconSize). A larger leftover buffer (e.g. a fixed 400×300) made
-  // HD File Browser thumbs look soft / wrong after slider commits.
-  //
-  // Grow to max(request, filmstrip, cast prefs). Do NOT destroy the previous
-  // TLS context — rapid OfflineGL teardown on worker threads caused NVIDIA
-  // ACCESS_VIOLATION crashes while scrubbing the size slider.
+  // Size the buffer for the request (and filmstrip / cast prefs). Grow the
+  // TLS OfflineGL in place; tearing it down on worker threads is unsafe.
   const TDimension requiredSize(
       std::max(minSize.lx, std::max(FilmstripIconSize.lx, IconSize.lx)),
       std::max(minSize.ly, std::max(FilmstripIconSize.ly, IconSize.ly)));
@@ -1502,7 +1487,7 @@ TOfflineGL *IconGenerator::getOfflineGLContext(const TDimension &minSize) {
 
   const TDimension actualSize = context->getSize();
   if (actualSize.lx < requiredSize.lx || actualSize.ly < requiredSize.ly) {
-    // Intentionally leak the smaller context (once per size jump / thread).
+    // Keep the previous smaller context; replacing TLS only.
     context = new TOfflineGL(requiredSize);
     m_contexts.setLocalData(context);
   }
@@ -1990,9 +1975,7 @@ void IconGenerator::onStarted(TThread::RunnableP iconRenderer) {
 void IconGenerator::onCanceled(TThread::RunnableP iconRenderer) {
   IconRenderer *ir = static_cast<IconRenderer *>(iconRenderer.getPointer());
 
-  // Always drop the map entry. Leaving an id without a cached raster made
-  // subsequent getSizedIcon() calls return a permanent null (found-in-map but
-  // empty), so the File Browser kept upscaling the soft 80x60 fallback.
+  // Drop the map entry so a canceled request is not treated as a hit.
   removeIcon(ir->getId());
 }
 
@@ -2001,8 +1984,7 @@ void IconGenerator::onCanceled(TThread::RunnableP iconRenderer) {
 void IconGenerator::onFinished(TThread::RunnableP iconRenderer) {
   IconRenderer *ir = static_cast<IconRenderer *>(iconRenderer.getPointer());
 
-  // clearRequests() cancels in-flight work and drops the map entry; discard
-  // the framebuffer so obsolete slider sizes never re-enter the cache.
+  // Skip finished work whose map entry was already cleared.
   if (iconsMap.find(ir->getId()) == iconsMap.end()) {
     if (ir->wasTerminated()) m_iconsTerminationLoop.quit();
     return;

@@ -826,7 +826,7 @@ QVariant SceneBrowser::getItemData(int index, DataType dataType,
     DvItemViewerPanel *panel = m_itemViewer->getPanel();
     QSize iconSize           = panel->getIconSize();
     QSize renderSize         = panel->getRenderIconSize();
-    // Re-render SVG at the live size (static cache was the pixelation source).
+    // Folder icons: render SVG at the live cell size.
     if (item.m_path == m_folder.getParentDir()) {
       return sceneBrowserSvgIcon(QStringLiteral(":Resources/folderup_icon.svg"),
                                  iconSize);

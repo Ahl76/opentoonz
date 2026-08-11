@@ -58,10 +58,10 @@
 
 namespace {
 const int kBrowserIconQuantStep    = 16;
-// Longer debounce: rapid slider scrub must not enqueue a PLI/GL render per bump.
+// Debounce HD regen while scrubbing the size control.
 const int kBrowserRenderDebounceMs = 280;
 const int kBrowserThumbMinWidth    = 40;
-const int kBrowserThumbMaxWidth    = 400;  // slider end-stop for very large thumbs
+const int kBrowserThumbMaxWidth    = 400;
 const int kBrowserThumbDefaultW    = 80;
 const int kBrowserThumbDefaultH    = 60;
 const int kBrowserBlockSepPad = 6;
@@ -640,8 +640,7 @@ void ItemViewPlayWidget::PlayManager::setInfo(DvItemListModel *model, int index,
   m_iconSize       = layoutSize.isEmpty() ? QSize(80, 60) : layoutSize;
   m_renderSize     = renderSize.isEmpty() ? m_iconSize : renderSize;
   m_browserBgMode  = browserBgMode;
-  // Do not seed with the static thumbnail — it would ghost under / as the
-  // first "animation" frame while HD frames are still generating.
+  // Leave empty until the first play frame is ready.
   m_pixmap = QPixmap();
   m_path   = path;
   getFileFids(m_path, m_fids);
@@ -658,7 +657,7 @@ bool ItemViewPlayWidget::PlayManager::increaseCurrentFrame() {
   if (pixmap.isNull())
     return false;  // Se non ha ancora finito di calcolare l'icona ritorno
   assert(!m_iconSize.isEmpty());
-  // Keep the HD pixmap; paint() scales into the live cell (Level Strip style).
+  // Keep native size; paint() scales into the cell.
   m_pixmap = pixmap;
   ++m_currentFidIndex;
   return true;
@@ -1076,8 +1075,7 @@ void DvItemViewerPanel::setIconSize(QSize size) {
   if (size.width() <= 0 || size.height() <= 0) return;
   if (m_iconSize == size) return;
 
-  // Zoom around what the user is looking at (viewport center item), not
-  // the top-left of the content — otherwise the slider feels like it jumps.
+  // Anchor zoom on the viewport-center item.
   int anchorIndex = -1;
   if (m_viewer && m_viewType == ThumbnailView) {
     const QPoint viewCenter = m_viewer->viewport()->rect().center();
@@ -1118,8 +1116,7 @@ void DvItemViewerPanel::setThumbnailWidth(int width) {
 void DvItemViewerPanel::setThumbnailBgMode(ThumbnailBgMode mode) {
   if (m_thumbnailBgMode == mode) return;
   m_thumbnailBgMode = mode;
-  // Icons cached with a baked white/magenta letterbox must be regenerated when
-  // a forced background is selected (or when returning to automatic mode).
+  // Invalidate sized icons when the letterbox / fill mode changes.
   IconGenerator::instance()->clearRequests();
   IconGenerator::instance()->purgeResponsiveFileIconsExcept(TDimension());
   if (m_itemViewPlayDelegate) m_itemViewPlayDelegate->resetPlayWidget();
@@ -1235,10 +1232,7 @@ void DvItemViewerPanel::commitRenderIconSize() {
   m_prevRenderIconSize = prev;
   m_renderIconSize     = next;
 
-  // Visible cells re-request getSizedIcon at the new size via getItemData.
-  // (Stale `_r_WxH` caches are pruned when Advanced Display is turned off —
-  // purging here raced HD generation and left soft 80×60 fallbacks.)
-  // Cast rebuilds items so getPixmap requests the committed native size.
+  // Cells pick up the new size via getItemData. Cast rebuilds its items.
   if (m_viewer && m_viewer->m_windowType == DvItemViewer::Cast) {
     if (DvItemListModel *model = m_viewer->getModel()) model->refreshData();
     m_viewer->refresh();
@@ -1267,7 +1261,7 @@ void DvItemViewerPanel::fillThumbnailBackground(QPainter &p,
   case BgTransparent:
   case BgAuto:
   default:
-    // Auto / no-fill: pas de remplissage UI (vignette telle quelle).
+    // No UI fill; draw the thumbnail as-is.
     break;
   }
 }
@@ -1569,8 +1563,7 @@ void DvItemViewerPanel::paintThumbnailItem(QPainter &p, int index) {
     p.fillRect(textRect.adjusted(-2, 3, 2, 0), getSelectedItemBackground());
   }
 
-  // Background under the thumbnail (advanced display: white / black /
-  // transparent / checkered). Folders keep the default transparent panel BG.
+  // Thumbnail background fill (folders keep the panel default).
   const bool isFolder =
       getModel()->getItemData(index, DvItemListModel::IsFolder).toBool();
   ThumbnailBgMode thumbBg = m_thumbnailBgMode;
@@ -1581,8 +1574,7 @@ void DvItemViewerPanel::paintThumbnailItem(QPainter &p, int index) {
   }
   if (!isFolder) fillThumbnailBackground(p, iconRect, thumbBg);
 
-  // While a level/scene/output is playing, skip the static thumbnail — otherwise
-  // it shows through transparent / letterboxed animation frames (ghost image).
+  // Skip the static thumb while play frames are shown.
   const bool playingHere =
       !m_isPlayDelegateDisable && m_itemViewPlayDelegate &&
       m_itemViewPlayDelegate->isIndexPlaying(index);
@@ -1605,8 +1597,7 @@ void DvItemViewerPanel::paintThumbnailItem(QPainter &p, int index) {
       if (logicalSize == iconRect.size()) {
         p.drawPixmap(iconRect.topLeft(), thumbnail);
       } else {
-        // During slider drag this is typically the last HD cache entry scaled
-        // into the new cell (same approach as Level Strip responsive thumbs).
+        // Scale cached thumb into the live cell while HD regenerates.
         const QPixmap scaled = thumbnail.scaled(
             iconRect.size() * dpr, Qt::KeepAspectRatio,
             Qt::SmoothTransformation);
@@ -2540,15 +2531,13 @@ DvItemViewerButtonBar::DvItemViewerButtonBar(DvItemViewer *itemViewer,
             SLOT(onPreferenceChanged(const QString &)));
   }
 
-  // Advanced display: BG modes, size presets, size slider (right-click to
-  // toggle).
+  // BG modes, size presets, size slider (right-click to toggle).
   buildAdvancedControls();
 
   DvItemViewerPanel *panel = itemViewer->getPanel();
   connect(panel, &DvItemViewerPanel::thumbnailSizeChanged, this,
           &DvItemViewerButtonBar::onPanelThumbnailSizeChanged);
-  // Layout follows the slider immediately; native HD regen is debounced in the
-  // panel (Cast refreshData runs only on commitRenderIconSize).
+  // Layout updates immediately; HD regen is debounced in the panel.
   connect(panel, &DvItemViewerPanel::thumbnailSizeChanged, itemViewer,
           [itemViewer](const QSize &) { itemViewer->refresh(); });
 

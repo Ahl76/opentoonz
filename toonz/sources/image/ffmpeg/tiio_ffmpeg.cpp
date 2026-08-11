@@ -605,9 +605,8 @@ void Ffmpeg::getFramesFromMovie(int frame) {
       // Extract every frame (legacy / bulk decode).
       postIFrameArgs << "-y" << "-f" << "image2" << tempName;
     } else {
-      // Extract only the requested frame. Full-movie decode was timing out
-      // for long render outputs, so File Browser HD thumbs never arrived and
-      // stayed stuck on the soft 80x60 fallback.
+      // Single-frame extract: decoding the whole movie is too slow for
+      // browser / filmstrip thumbnails.
       if (frame > 1) {
         postIFrameArgs << "-vf"
                        << QString("select=eq(n\\,%1)").arg(frame - 1);
@@ -838,8 +837,7 @@ TImageP TLevelReaderFFmpeg::load(int frameIndex) {
   if (!m_ffmpegReader) return TImageP();
 
   try {
-    // Decode just this frame (see Ffmpeg::getFramesFromMovie). Avoids waiting
-    // for a full-movie extract before the first browser / filmstrip thumb.
+    // Decode only the requested frame.
     m_ffmpegReader->getFramesFromMovie(frameIndex);
     m_framesExtracted = true;
   } catch (const TImageException &e) {

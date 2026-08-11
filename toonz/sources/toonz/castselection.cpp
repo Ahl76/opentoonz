@@ -110,8 +110,7 @@ QPixmap LevelCastItem::getPixmap(bool isSelected) const {
   if (icon.isNull())
     icon = IconGenerator::instance()->getIcon(sl, sl->getFirstFid(), false,
                                               onDemand);
-  // When we already have a native-sized (or larger) pixmap, let the viewer
-  // paint path scale it — same HD-while-resizing behaviour as Level Strip.
+  // Prefer a native-sized pixmap; the viewer scales it while resizing.
   if (needNativeSize && !icon.isNull() &&
       (icon.width() >= m_itemPixmapSize.width() * 0.9 ||
        icon.height() >= m_itemPixmapSize.height() * 0.9))
