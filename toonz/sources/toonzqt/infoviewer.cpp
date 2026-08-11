@@ -111,7 +111,6 @@ public:
   void applyEmbeddedStyle(bool embedded);
   void constrainToWidth(int availableWidth);
   void finishDisplay();
-  bool showGeneralFileInfoOnly(const TFilePath &path);
   void setHistoryText(const QString &raw);
 
   static QString manualWrap(const QString &text, const QFontMetrics &fm,
@@ -579,24 +578,6 @@ void InfoViewerImp::finishDisplay() {
     m_historyLabel.show();
     m_history.show();
   }
-}
-
-//----------------------------------------------------------------
-
-bool InfoViewerImp::showGeneralFileInfoOnly(const TFilePath &path) {
-  if (!TSystem::doesExistFileOrLevel(path)) return false;
-  m_path = path;
-  // Level paths (foo..tif) may not exist as a single QFileInfo entry.
-  QFileInfo fi(toQString(path));
-  if (fi.exists())
-    setGeneralFileInfo(path);
-  else {
-    setVal(eFullpath, toQString(path));
-    setVal(eFileType, getTypeString());
-    m_separator1.show();
-  }
-  finishDisplay();
-  return true;
 }
 
 //----------------------------------------------------------------

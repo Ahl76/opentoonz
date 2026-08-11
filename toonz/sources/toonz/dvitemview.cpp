@@ -2548,8 +2548,6 @@ DvItemViewerButtonBar::DvItemViewerButtonBar(DvItemViewer *itemViewer,
                                          : (int)BrowserAdvancedGuiParts);
   if (m_guiPartsFlag == 0) m_guiPartsFlag = AGUI_All;
   m_guiPartsFlag &= AGUI_All;  // drop legacy per-type filter visibility bits
-  // New part: default on for profiles saved before it existed.
-  m_guiPartsFlag |= AGUI_ProjectFolders | AGUI_InfoPanel;
   if (m_advancedDisplayAct) {
     m_advancedDisplayAct->blockSignals(true);
     m_advancedDisplayAct->setChecked(advanced);

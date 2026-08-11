@@ -166,7 +166,6 @@ types to be displayed in the file browser.
   void enableDoubleClickToOpenScenes();
 
   void setInfoPanelVisible(bool visible);
-  bool isInfoPanelVisible() const { return m_infoPanelVisible; }
 
 public slots:
   void onInfoPanelActionTriggered(bool on);

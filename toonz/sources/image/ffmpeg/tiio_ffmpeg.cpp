@@ -769,7 +769,6 @@ TLevelReaderFFmpeg::TLevelReaderFFmpeg(const TFilePath &path)
     , m_frameCount(-1)
     , m_lx(0)
     , m_ly(0)
-    , m_framesExtracted(false)
     , m_imageInfo(nullptr) {
   m_ffmpegReader = new Ffmpeg();
   if (!m_ffmpegReader) {
@@ -839,7 +838,6 @@ TImageP TLevelReaderFFmpeg::load(int frameIndex) {
   try {
     // Decode only the requested frame.
     m_ffmpegReader->getFramesFromMovie(frameIndex);
-    m_framesExtracted = true;
   } catch (const TImageException &e) {
     DVGui::warning(QObject::tr("Failed to extract frames from movie: %1")
                        .arg(QString::fromStdWString(e.getMessage())));

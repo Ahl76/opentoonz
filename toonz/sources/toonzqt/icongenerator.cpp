@@ -1211,7 +1211,7 @@ Qt::transparent)
   if (settings.m_transparentBg)
     icon->clear();
   else
-    icon->fill(TPixel32::Magenta);
+    icon->fill(TPixel32::White);
 
   // ClosestPixel for small thumbs; Triangle when downscaling to larger ones.
   const TRop::ResampleFilterType filter =

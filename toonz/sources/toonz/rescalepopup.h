@@ -7,14 +7,11 @@
 #include "tfilepath.h"
 #include "tgeometry.h"
 
-#include <QThread>
 #include <vector>
 
 class QComboBox;
-class QLabel;
 class QPushButton;
 class QCheckBox;
-class QGridLayout;
 
 namespace DVGui {
 class FileField;

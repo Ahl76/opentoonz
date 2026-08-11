@@ -32,6 +32,7 @@
 #include <QLabel>
 #include <QMainWindow>
 #include <QPushButton>
+#include <QThread>
 #include <QFile>
 #include <QTextStream>
 #include <QRegularExpression>

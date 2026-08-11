@@ -144,7 +144,6 @@ public:
 
 private:
   Ffmpeg *m_ffmpegReader = nullptr;
-  bool m_framesExtracted = false;
   TDimension m_size;
   int m_frameCount        = -1;
   int m_lx                = 0;
