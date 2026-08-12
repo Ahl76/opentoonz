@@ -52,7 +52,6 @@
 #include <QCoreApplication>
 
 #include "toonzqt/colorfield.h"
-#include "pane.h"
 
 #include <stdint.h>  // for uint64_t
 
@@ -3287,16 +3286,6 @@ void DvItemViewerButtonBar::contextMenuEvent(QContextMenuEvent *event) {
 
   // Viewer-style submenu — only while Advanced Display is active.
   if (advancedOn) addGuiShowHideMenu(&menu);
-
-  TPanel *tpanel = nullptr;
-  for (QWidget *w = parentWidget(); w; w = w->parentWidget()) {
-    tpanel = dynamic_cast<TPanel *>(w);
-    if (tpanel) break;
-  }
-  if (tpanel) {
-    menu.addSeparator();
-    tpanel->appendRoomBindMenuAction(&menu);
-  }
 
   menu.exec(event->globalPos());
 }
