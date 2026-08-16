@@ -136,7 +136,6 @@ HarmonyCut normalizedHarmonyCut(int id) {
 int wrapHue(int h) {
   h %= 360;
   if (h < 0) h += 360;
-  if (h > 359) h = 0;
   return h;
 }
 
@@ -2346,10 +2345,10 @@ public:
 };
 
 class ColorCollectorGrid final : public QWidget {
-  static const int kCols = 8;
-  static const int kRows = 4;
+  static const int kCols = 12;
+  static const int kRows = 6;
   static const int kCount = kCols * kRows;
-  static const int kGap   = 3;
+  static const int kGap   = 2;
   ColorModel m_slots[kCount];
   bool m_filled[kCount];
   std::function<ColorModel()> m_current;
@@ -2477,10 +2476,10 @@ public:
 };
 
 class ColorHistoryGrid final : public QWidget {
-  static const int kCols  = 8;
-  static const int kRows  = 4;
+  static const int kCols  = 12;
+  static const int kRows  = 6;
   static const int kCount = kCols * kRows;
-  static const int kGap   = 3;
+  static const int kGap   = 2;
   ColorModel m_slots[kCount];
   int m_used = 0;
   std::function<void(const ColorModel &)> m_pick;
@@ -3017,7 +3016,7 @@ PlainColorPage::PlainColorPage(QWidget *parent)
     m_collectorBtn->setFocusPolicy(Qt::NoFocus);
     m_collectorBtn->setFixedSize(20, 20);
     m_collectorBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
-    m_collectorBtn->setIconSize(QSize(20, 20));
+    m_collectorBtn->setIconSize(QSize(18, 18));
     m_collectorBtn->setIcon(createQIcon("colorpicker_collector"));
     m_collectorBtn->setToolTip(tr("Color Collector"));
     featureLay->addWidget(m_collectorBtn, 0);
