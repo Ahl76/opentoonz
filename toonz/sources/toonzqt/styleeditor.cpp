@@ -65,6 +65,8 @@
 #include <QResizeEvent>
 #include <QShowEvent>
 #include <QContextMenuEvent>
+#include <QFontMetrics>
+#include <functional>
 
 namespace {
 enum ColorSliderAppearance {
@@ -86,6 +88,7 @@ TEnv::IntVar StyleEditorShowSvShapeButton("StyleEditorShowSvShapeButton", 1);
 TEnv::IntVar StyleEditorShowSectionToggles("StyleEditorShowSectionToggles", 1);
 TEnv::IntVar StyleEditorShowPickerKindButtons(
     "StyleEditorShowPickerKindButtons", 1);
+TEnv::IntVar StyleEditorShowVarButton("StyleEditorShowVarButton", 1);
 
 using namespace StyleEditorGUI;
 
@@ -2137,6 +2140,100 @@ protected:
   }
 };
 
+//-----------------------------------------------------------------------------
+
+class ColorVariationStrip final : public QWidget {
+  static const int kCount  = 9;
+  static const int kGap    = 1;
+  static const int kMinChip = 8;
+  QToolButton *m_chips[kCount];
+  ColorModel m_src;
+  std::function<void(const ColorModel &)> m_pick;
+  int m_rows = 1;
+
+  ColorModel colorAt(int i) const {
+    ColorModel cm = m_src;
+    const int v   = 14 + i * (100 - 14) / (kCount - 1);
+    cm.setValue(eValue, v);
+    return cm;
+  }
+
+  void paintChip(int i) {
+    const TPixel32 p = colorAt(i).getTPixel();
+    const QColor qc(p.r, p.g, p.b);
+    m_chips[i]->setStyleSheet(
+        QStringLiteral("QToolButton { background: %1; border: 1px solid "
+                       "palette(mid); padding: 0px; margin: 0px; "
+                       "min-width: 0px; min-height: 0px; }")
+            .arg(qc.name()));
+  }
+
+  int rowCountForWidth(int w) const {
+    if (w <= 0) return 1;
+    const int oneRow = (w - kGap * (kCount - 1)) / kCount;
+    return (oneRow < kMinChip) ? 2 : 1;
+  }
+
+  int stripHeight(int rows) const { return rows == 2 ? 28 : 16; }
+
+  void relayout() {
+    const int w    = width();
+    const int rows = rowCountForWidth(w);
+    const int cols = (kCount + rows - 1) / rows;
+    const int chipH =
+        std::max(8, (stripHeight(rows) - kGap * (rows - 1)) / rows);
+    const int chipW =
+        std::max(0, (w - kGap * (cols - 1)) / std::max(cols, 1));
+    for (int i = 0; i < kCount; ++i) {
+      const int r = i / cols;
+      const int c = i % cols;
+      m_chips[i]->setGeometry(c * (chipW + kGap), r * (chipH + kGap), chipW,
+                              chipH);
+    }
+    if (rows != m_rows) {
+      m_rows = rows;
+      updateGeometry();
+      if (parentWidget()) parentWidget()->updateGeometry();
+    }
+  }
+
+protected:
+  void resizeEvent(QResizeEvent *e) override {
+    QWidget::resizeEvent(e);
+    relayout();
+  }
+
+public:
+  explicit ColorVariationStrip(QWidget *parent) : QWidget(parent) {
+    setMinimumSize(0, 16);
+    setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    for (int i = 0; i < kCount; ++i) {
+      m_chips[i] = new QToolButton(this);
+      m_chips[i]->setMinimumSize(0, 0);
+      m_chips[i]->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+      m_chips[i]->setFocusPolicy(Qt::NoFocus);
+      m_chips[i]->setAutoRaise(false);
+      connect(m_chips[i], &QToolButton::clicked, this, [this, i]() {
+        if (m_pick) m_pick(colorAt(i));
+      });
+    }
+  }
+
+  QSize sizeHint() const override {
+    return QSize(0, stripHeight(rowCountForWidth(width())));
+  }
+  QSize minimumSizeHint() const override { return QSize(0, 16); }
+
+  void setPick(std::function<void(const ColorModel &)> cb) {
+    m_pick = std::move(cb);
+  }
+
+  void setFrom(const ColorModel &color) {
+    m_src = color;
+    for (int i = 0; i < kCount; ++i) paintChip(i);
+  }
+};
+
 //*****************************************************************************
 //    PlainColorPage  implementation
 //*****************************************************************************
@@ -2174,6 +2271,7 @@ PlainColorPage::PlainColorPage(QWidget *parent)
           SLOT(setWheelChannel(int)));
 
   m_pickerFrame = new QFrame(this);
+  m_swatchFrame = new QFrame(this);
   m_hsvFrame   = new QFrame(this);
   m_alphaFrame = new QFrame(this);
   m_rgbFrame   = new QFrame(this);
@@ -2182,6 +2280,7 @@ PlainColorPage::PlainColorPage(QWidget *parent)
   m_vSplitter        = new QSplitter(this);
 
   m_pickerFrame->setObjectName("PlainColorPageParts");
+  m_swatchFrame->setObjectName("PlainColorPageParts");
   m_hsvFrame->setObjectName("PlainColorPageParts");
   m_alphaFrame->setObjectName("PlainColorPageParts");
   m_rgbFrame->setObjectName("PlainColorPageParts");
@@ -2329,11 +2428,31 @@ PlainColorPage::PlainColorPage(QWidget *parent)
 
     chromeLay->addWidget(m_sectionBar, 0);
     chromeLay->addStretch(1);
-    chromeLay->addWidget(m_wheelKindBtn, 0);
-    chromeLay->addWidget(m_rectKindBtn, 0);
-    chromeLay->addWidget(m_advancedModeBtn, 0);
+    chromeLay->addWidget(m_wheelKindBtn, 0, Qt::AlignVCenter);
+    chromeLay->addWidget(m_rectKindBtn, 0, Qt::AlignVCenter);
+    chromeLay->addWidget(m_advancedModeBtn, 0, Qt::AlignVCenter);
 
     mainLayout->addWidget(m_pickerChrome, 0);
+
+    m_variationStrip = new ColorVariationStrip(m_swatchFrame);
+    static_cast<ColorVariationStrip *>(m_variationStrip)
+        ->setPick([this](const ColorModel &c) {
+          if (!(m_color == c)) {
+            m_color = c;
+            updateControls();
+          }
+          if (m_signalEnabled) emit colorChanged(m_color, false);
+        });
+    QVBoxLayout *swatchLay = new QVBoxLayout(m_swatchFrame);
+    swatchLay->setContentsMargins(4, 2, 4, 2);
+    swatchLay->setSpacing(0);
+    swatchLay->addWidget(m_variationStrip);
+    m_swatchFrame->setMinimumSize(0, 0);
+    m_swatchFrame->setMaximumHeight(36);
+    m_swatchFrame->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    m_swatchFrame->hide();
+    mainLayout->addWidget(m_swatchFrame, 0);
+
     mainLayout->addWidget(m_vSplitter, 1);
   }
   setLayout(mainLayout);
@@ -2368,6 +2487,8 @@ PlainColorPage::PlainColorPage(QWidget *parent)
   enableCtx(m_vSplitter);
   enableCtx(m_pickerChrome);
   enableCtx(m_sectionBar);
+  m_pickerChrome->installEventFilter(this);
+  enableCtx(m_swatchFrame);
 
   m_squaredColorWheel->setChannel(eHue);
   updatePickerChrome();
@@ -2375,7 +2496,10 @@ PlainColorPage::PlainColorPage(QWidget *parent)
 
 //-----------------------------------------------------------------------------
 
-void PlainColorPage::resizeEvent(QResizeEvent *) { placeSvShapeButton(); }
+void PlainColorPage::resizeEvent(QResizeEvent *) {
+  fitPickerChrome();
+  placeSvShapeButton();
+}
 
 //-----------------------------------------------------------------------------
 
@@ -2388,6 +2512,8 @@ void PlainColorPage::showEvent(QShowEvent *e) {
 //-----------------------------------------------------------------------------
 
 bool PlainColorPage::eventFilter(QObject *watched, QEvent *event) {
+  if (watched == m_pickerChrome && event->type() == QEvent::Resize)
+    fitPickerChrome();
   if (watched == m_pickerFrame && (event->type() == QEvent::Resize ||
                                   event->type() == QEvent::Show))
     placeSvShapeButton();
@@ -2403,6 +2529,116 @@ void PlainColorPage::placeSvShapeButton() {
   m_svShapeBtn->move(m_pickerFrame->width() - s - m,
                      m_pickerFrame->height() - s - m);
   m_svShapeBtn->raise();
+}
+
+//-----------------------------------------------------------------------------
+
+void PlainColorPage::fitPickerChrome() {
+  if (m_fittingChrome || !m_pickerChrome || !m_sectionBar) return;
+  QHBoxLayout *chromeLay =
+      qobject_cast<QHBoxLayout *>(m_pickerChrome->layout());
+  QHBoxLayout *secLay = qobject_cast<QHBoxLayout *>(m_sectionBar->layout());
+  if (!chromeLay || !secLay) return;
+
+  m_fittingChrome = true;
+
+  const int kFont     = 10;
+  const int kPad      = 2;
+  const int kIcon     = 20;
+  const int kAdvIcon  = 16;
+  const int kKindIcon = 14;
+  const int kChromeM  = 4;
+  const int kChromeSp = 2;
+  const int kSecSp    = 1;
+
+  QList<QToolButton *> textBtns;
+  for (QToolButton *btn : m_sectionBar->findChildren<QToolButton *>()) {
+    if (!btn->isHidden()) textBtns.append(btn);
+  }
+  QList<QToolButton *> iconBtns;
+  if (m_wheelKindBtn && !m_wheelKindBtn->isHidden())
+    iconBtns.append(m_wheelKindBtn);
+  if (m_rectKindBtn && !m_rectKindBtn->isHidden())
+    iconBtns.append(m_rectKindBtn);
+  if (m_advancedModeBtn && !m_advancedModeBtn->isHidden())
+    iconBtns.append(m_advancedModeBtn);
+
+  auto apply = [&](double scale) {
+    const int fontPx =
+        std::max(6, (int)std::lround((double)kFont * scale));
+    const int pad = std::max(0, (int)std::lround((double)kPad * scale));
+    const int iconW =
+        std::max(12, (int)std::lround((double)kIcon * scale));
+    const int advIcon =
+        std::max(8, (int)std::lround((double)kAdvIcon * scale));
+    const int kindIcon =
+        std::max(8, (int)std::lround((double)kKindIcon * scale));
+    const int chromeM =
+        std::max(1, (int)std::lround((double)kChromeM * scale));
+    const int chromeSp =
+        std::max(0, (int)std::lround((double)kChromeSp * scale));
+    const int secSp = std::max(0, (int)std::lround((double)kSecSp * scale));
+
+    chromeLay->setContentsMargins(chromeM, 0, chromeM, 0);
+    chromeLay->setSpacing(chromeSp);
+    secLay->setSpacing(secSp);
+
+    QFont tf = m_pickerChrome->font();
+    tf.setPixelSize(fontPx);
+    const QString qss = QStringLiteral(
+        "QToolButton { font-size: %1px; padding: 0px %2px; margin: 0px; "
+        "min-width: 0px; min-height: 0px; }"
+        "QToolButton:hover, QToolButton:checked, QToolButton:checked:hover { "
+        "padding: 0px %2px; margin: 0px; }")
+                            .arg(fontPx)
+                            .arg(pad);
+    QFontMetrics fm(tf);
+    for (QToolButton *btn : textBtns) {
+      btn->setFont(tf);
+      btn->setStyleSheet(qss);
+      btn->setFixedHeight(20);
+      const int w = fm.horizontalAdvance(btn->text()) + pad * 2 + 2;
+      if (scale >= 0.999) {
+        btn->setMinimumWidth(0);
+        btn->setMaximumWidth(QWIDGETSIZE_MAX);
+      } else {
+        btn->setFixedWidth(std::max(w, 8));
+      }
+    }
+    for (QToolButton *btn : iconBtns) {
+      btn->setFixedSize(iconW, 20);
+      const int isz = (btn == m_advancedModeBtn) ? advIcon : kindIcon;
+      btn->setIconSize(QSize(isz, isz));
+    }
+  };
+
+  apply(1.0);
+  chromeLay->activate();
+
+  int nLay = 0;
+  int need = chromeLay->contentsMargins().left() +
+             chromeLay->contentsMargins().right();
+  for (int i = 0; i < chromeLay->count(); ++i) {
+    QLayoutItem *it = chromeLay->itemAt(i);
+    if (!it) continue;
+    if (it->spacerItem()) {
+      ++nLay;
+      continue;
+    }
+    QWidget *w = it->widget();
+    if (!w || w->isHidden()) continue;
+    need += w->sizeHint().width();
+    ++nLay;
+  }
+  if (nLay > 1) need += chromeLay->spacing() * (nLay - 1);
+
+  const int avail = m_pickerChrome->width();
+  double scale    = 1.0;
+  if (avail > 0 && need > avail)
+    scale = std::max(0.6, (double)avail / (double)need);
+  if (scale < 0.999) apply(scale);
+
+  m_fittingChrome = false;
 }
 
 //-----------------------------------------------------------------------------
@@ -2425,6 +2661,9 @@ void PlainColorPage::updateControls() {
   m_verticalSlider->setValue(m_color.getValue(m_verticalSlider->getChannel()));
   m_verticalSlider->update();
   m_verticalSlider->blockSignals(signalsBlocked);
+
+  if (m_variationStrip)
+    static_cast<ColorVariationStrip *>(m_variationStrip)->setFrom(m_color);
 }
 
 //-----------------------------------------------------------------------------
@@ -2560,7 +2799,14 @@ void PlainColorPage::updatePickerChrome() {
   m_rectKindBtn->setVisible(showKindBtns);
   m_wheelKindBtn->setChecked(wheelAdv);
   m_rectKindBtn->setChecked(rectangle);
-  m_sectionBar->setVisible(showSections);
+  const bool showVarBtn = StyleEditorShowVarButton != 0;
+  for (QToolButton *btn : m_sectionBar->findChildren<QToolButton *>()) {
+    if (btn == m_varBtn)
+      btn->setVisible(showVarBtn);
+    else
+      btn->setVisible(showSections);
+  }
+  m_sectionBar->setVisible(showSections || showVarBtn);
   m_svShapeBtn->setVisible(showShapeBtn);
   if (m_hexagonalColorWheel->svShape() == AdvancedSvShape::Square) {
     m_svShapeBtn->setIcon(createQIcon("colorpicker_sv_triangle"));
@@ -2569,11 +2815,13 @@ void PlainColorPage::updatePickerChrome() {
     m_svShapeBtn->setIcon(createQIcon("colorpicker_sv_square"));
     m_svShapeBtn->setToolTip(tr("Switch to the square chromatic space"));
   }
-  const bool showTopChrome = showAdvBtn || showSections || showKindBtns;
+  const bool showTopChrome =
+      showAdvBtn || showSections || showKindBtns || showVarBtn;
   m_pickerChrome->setVisible(showTopChrome);
   if (QLayout *lay = m_pickerChrome->layout()) lay->activate();
   m_pickerChrome->updateGeometry();
   m_sectionBar->updateGeometry();
+  fitPickerChrome();
   placeSvShapeButton();
   QTimer::singleShot(0, this, SLOT(refreshPickerLayout()));
 }
@@ -2598,12 +2846,13 @@ void PlainColorPage::refreshPickerLayout() {
 
 void PlainColorPage::bindSectionActions(QAction *picker, QAction *alpha,
                                         QAction *hsv, QAction *rgb,
-                                        QAction *hex) {
+                                        QAction *hex, QAction *swatch) {
   m_pickerSectionAction = picker;
   QHBoxLayout *lay = qobject_cast<QHBoxLayout *>(m_sectionBar->layout());
   if (!lay) return;
 
-  auto addBtn = [&](QAction *action, const QString &label, const QString &tip) {
+  auto addBtn = [&](QAction *action, const QString &label,
+                    const QString &tip) -> QToolButton * {
     QToolButton *btn = new QToolButton(m_sectionBar);
     btn->setCheckable(true);
     btn->setAutoRaise(true);
@@ -2621,6 +2870,7 @@ void PlainColorPage::bindSectionActions(QAction *picker, QAction *alpha,
     connect(btn, SIGNAL(toggled(bool)), action, SLOT(setChecked(bool)));
     connect(action, SIGNAL(toggled(bool)), btn, SLOT(setChecked(bool)));
     lay->addWidget(btn, 0, Qt::AlignVCenter);
+    return btn;
   };
 
   addBtn(picker, tr("CP"), tr("Color picker"));
@@ -2628,6 +2878,7 @@ void PlainColorPage::bindSectionActions(QAction *picker, QAction *alpha,
   addBtn(hsv, tr("HSV"), tr("HSV sliders"));
   addBtn(rgb, tr("RGB"), tr("RGB sliders"));
   addBtn(hex, tr("HEX"), tr("Hex"));
+  m_varBtn = addBtn(swatch, tr("VAR"), tr("Color variations"));
   updatePickerChrome();
 }
 
@@ -3757,6 +4008,7 @@ StyleEditor::StyleEditor(PaletteController *paletteController, QWidget *parent)
     , m_paletteHandle(paletteController->getCurrentPalette())
     , m_cleanupPaletteHandle(paletteController->getCurrentCleanupPalette())
     , m_toolBar(0)
+    , m_swatchAction(0)
     , m_enabled(false)
     , m_enabledOnlyFirstTab(false)
     , m_enabledFirstAndLastTab(false)
@@ -3935,6 +4187,7 @@ QFrame *StyleEditor::createBottomWidget() {
   m_alphaAction  = new QAction(tr("Alpha"), this);
   m_rgbAction    = new QAction(tr("RGB"), this);
   m_hexAction    = new QAction(tr("Hex"), this);
+  m_swatchAction = new QAction(tr("Variations"), this);
   m_searchAction = new QAction(tr("Search"), this);
 
   m_pickerAction->setCheckable(true);
@@ -3942,23 +4195,27 @@ QFrame *StyleEditor::createBottomWidget() {
   m_alphaAction->setCheckable(true);
   m_rgbAction->setCheckable(true);
   m_hexAction->setCheckable(true);
+  m_swatchAction->setCheckable(true);
   m_searchAction->setCheckable(true);
   m_pickerAction->setToolTip(tr("Color picker"));
   m_hsvAction->setToolTip(tr("HSV sliders"));
   m_alphaAction->setToolTip(tr("Alpha slider"));
   m_rgbAction->setToolTip(tr("RGB sliders"));
   m_hexAction->setToolTip(tr("Hex"));
+  m_swatchAction->setToolTip(tr("Value variations of the current color"));
   m_pickerAction->setChecked(true);
   m_hsvAction->setChecked(true);
   m_alphaAction->setChecked(true);
   m_rgbAction->setChecked(true);
   m_hexAction->setChecked(false);
+  m_swatchAction->setChecked(false);
   m_searchAction->setChecked(false);
   menu->addAction(m_pickerAction);
   menu->addAction(m_hsvAction);
   menu->addAction(m_alphaAction);
   menu->addAction(m_rgbAction);
   menu->addAction(m_hexAction);
+  menu->addAction(m_swatchAction);
   menu->addAction(m_searchAction);
 
   m_sliderAppearanceAG = new QActionGroup(this);
@@ -4059,6 +4316,8 @@ QFrame *StyleEditor::createBottomWidget() {
                        m_plainColorPage->m_rgbFrame, SLOT(setVisible(bool)));
   ret = ret && connect(m_hexAction, SIGNAL(toggled(bool)), m_hexLineEdit,
                        SLOT(setVisible(bool)));
+  ret = ret && connect(m_swatchAction, SIGNAL(toggled(bool)),
+                       m_plainColorPage->m_swatchFrame, SLOT(setVisible(bool)));
   ret = ret && connect(m_searchAction, SIGNAL(toggled(bool)), this,
                        SLOT(onSearchVisible(bool)));
   ret = ret && connect(m_hexLineEdit, SIGNAL(editingFinished()), this,
@@ -4080,7 +4339,8 @@ QFrame *StyleEditor::createBottomWidget() {
   assert(ret);
 
   m_plainColorPage->bindSectionActions(m_pickerAction, m_alphaAction,
-                                       m_hsvAction, m_rgbAction, m_hexAction);
+                                       m_hsvAction, m_rgbAction, m_hexAction,
+                                       m_swatchAction);
 
   return bottomWidget;
 }
@@ -4927,6 +5187,7 @@ void StyleEditor::save(QSettings &settings) const {
   if (m_alphaAction->isChecked()) visibleParts |= 0x04;
   if (m_rgbAction->isChecked()) visibleParts |= 0x08;
   if (m_hexAction->isChecked()) visibleParts |= 0x10;
+  if (m_swatchAction && m_swatchAction->isChecked()) visibleParts |= 0x80;
   if (m_searchAction->isChecked()) visibleParts |= 0x20;
   settings.setValue("visibleParts", visibleParts);
   settings.setValue("splitterState", m_plainColorPage->getSplitterState());
@@ -4961,6 +5222,9 @@ void StyleEditor::load(QSettings &settings) {
       m_hexAction->setChecked(true);
     else
       m_hexAction->setChecked(false);
+    if (m_swatchAction) {
+      m_swatchAction->setChecked((visiblePartsInt & 0x80) != 0);
+    }
     if (visiblePartsInt & 0x20)
       m_searchAction->setChecked(true);
     else
@@ -5075,25 +5339,31 @@ void StyleEditor::fillPickerContextMenu(QMenu *menu) {
     }
   }
   menu->addSeparator();
-  QAction *showAdvBtn = menu->addAction(tr("Show Classic / Advanced Icon"));
-  showAdvBtn->setCheckable(true);
-  showAdvBtn->setData(QStringLiteral("chrome:adv"));
-  showAdvBtn->setChecked(StyleEditorShowAdvancedModeButton != 0);
+  QAction *showSections = menu->addAction(tr("Show Section Toggles"));
+  showSections->setCheckable(true);
+  showSections->setData(QStringLiteral("chrome:sections"));
+  showSections->setChecked(StyleEditorShowSectionToggles != 0);
   if (advanced) {
-    QAction *showShapeBtn = menu->addAction(tr("Show Chromatic Space Icon"));
-    showShapeBtn->setCheckable(true);
-    showShapeBtn->setData(QStringLiteral("chrome:shape"));
-    showShapeBtn->setChecked(StyleEditorShowSvShapeButton != 0);
     QAction *showKindBtns =
         menu->addAction(tr("Show Wheel / Rectangle Icons"));
     showKindBtns->setCheckable(true);
     showKindBtns->setData(QStringLiteral("chrome:kind"));
     showKindBtns->setChecked(StyleEditorShowPickerKindButtons != 0);
   }
-  QAction *showSections = menu->addAction(tr("Show Section Toggles"));
-  showSections->setCheckable(true);
-  showSections->setData(QStringLiteral("chrome:sections"));
-  showSections->setChecked(StyleEditorShowSectionToggles != 0);
+  QAction *showAdvBtn = menu->addAction(tr("Show Classic / Advanced Icon"));
+  showAdvBtn->setCheckable(true);
+  showAdvBtn->setData(QStringLiteral("chrome:adv"));
+  showAdvBtn->setChecked(StyleEditorShowAdvancedModeButton != 0);
+  QAction *showVarBtn = menu->addAction(tr("Show VAR Icon"));
+  showVarBtn->setCheckable(true);
+  showVarBtn->setData(QStringLiteral("chrome:var"));
+  showVarBtn->setChecked(StyleEditorShowVarButton != 0);
+  if (advanced) {
+    QAction *showShapeBtn = menu->addAction(tr("Show Chromatic Space Icon"));
+    showShapeBtn->setCheckable(true);
+    showShapeBtn->setData(QStringLiteral("chrome:shape"));
+    showShapeBtn->setChecked(StyleEditorShowSvShapeButton != 0);
+  }
 }
 
 //-----------------------------------------------------------------------------
@@ -5149,6 +5419,9 @@ void StyleEditor::onPickerContextMenu(const QPoint &globalPos) {
     m_plainColorPage->updatePickerChrome();
   } else if (key == QStringLiteral("chrome:sections")) {
     StyleEditorShowSectionToggles = chosen->isChecked() ? 1 : 0;
+    m_plainColorPage->updatePickerChrome();
+  } else if (key == QStringLiteral("chrome:var")) {
+    StyleEditorShowVarButton = chosen->isChecked() ? 1 : 0;
     m_plainColorPage->updatePickerChrome();
   }
 }

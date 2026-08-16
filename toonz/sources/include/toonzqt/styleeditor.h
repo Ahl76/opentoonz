@@ -524,6 +524,8 @@ class PlainColorPage final : public StyleEditorPage {
   QToolButton *m_wheelKindBtn;
   QToolButton *m_rectKindBtn;
   QToolButton *m_advancedModeBtn;
+  QToolButton *m_varBtn = nullptr;
+  bool m_fittingChrome  = false;
 
   ColorModel m_color;
   bool m_signalEnabled;
@@ -531,6 +533,7 @@ class PlainColorPage final : public StyleEditorPage {
   AdvancedPickerKind m_pickerKind = AdvancedPickerKind::Wheel;
   bool m_pickerVisible            = true;
   QAction *m_pickerSectionAction  = nullptr;
+  QWidget *m_variationStrip       = nullptr;
   int m_visibleParts;
   void updateControls();
 
@@ -543,6 +546,7 @@ public:
   ~PlainColorPage() {}
 
   QFrame *m_pickerFrame;
+  QFrame *m_swatchFrame;
   QFrame *m_hsvFrame;
   QFrame *m_alphaFrame;
   QFrame *m_rgbFrame;
@@ -563,7 +567,7 @@ public:
   void setPickerVisible(bool on);
   bool pickerVisible() const { return m_pickerVisible; }
   void bindSectionActions(QAction *picker, QAction *alpha, QAction *hsv,
-                          QAction *rgb, QAction *hex);
+                          QAction *rgb, QAction *hex, QAction *swatch);
   bool connectPickerContextMenu(const QObject *receiver, const char *member);
 
 protected:
@@ -572,6 +576,7 @@ protected:
   void contextMenuEvent(QContextMenuEvent *) override;
   bool eventFilter(QObject *watched, QEvent *event) override;
   void placeSvShapeButton();
+  void fitPickerChrome();
 
 signals:
   void colorChanged(const ColorModel &, bool isDragging);
@@ -989,6 +994,7 @@ class DVAPI StyleEditor final : public QWidget, public SaveLoadQSettings {
   QAction *m_alphaAction;
   QAction *m_rgbAction;
   QAction *m_hexAction;
+  QAction *m_swatchAction;
   QAction *m_searchAction;
   QActionGroup *m_sliderAppearanceAG;
   QAction *m_hexEditorAction;
