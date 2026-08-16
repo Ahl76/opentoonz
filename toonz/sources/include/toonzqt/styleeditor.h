@@ -525,7 +525,6 @@ class PlainColorPage final : public StyleEditorPage {
   QToolButton *m_rectKindBtn;
   QToolButton *m_advancedModeBtn;
   QToolButton *m_varBtn = nullptr;
-  bool m_fittingChrome  = false;
 
   ColorModel m_color;
   bool m_signalEnabled;
@@ -576,7 +575,6 @@ protected:
   void contextMenuEvent(QContextMenuEvent *) override;
   bool eventFilter(QObject *watched, QEvent *event) override;
   void placeSvShapeButton();
-  void fitPickerChrome();
 
 signals:
   void colorChanged(const ColorModel &, bool isDragging);
