@@ -487,6 +487,13 @@
 		<file>icons/dark/actions/16x16/colorpicker_rectangle.svg</file>
 		<file>icons/dark/actions/16x16/colorpicker_sv_square.svg</file>
 		<file>icons/dark/actions/16x16/colorpicker_sv_triangle.svg</file>
+		<file>icons/dark/actions/16x16/colorpicker_collector.svg</file>
+		<file>icons/dark/actions/16x16/colorpicker_history.svg</file>
+		<file>icons/dark/actions/16x16/colorpicker_harmony.svg</file>
+		<file>icons/dark/actions/16x16/colorpicker_harmony_none.svg</file>
+		<file>icons/dark/actions/16x16/colorpicker_harmony_comp.svg</file>
+		<file>icons/dark/actions/16x16/colorpicker_harmony_analog.svg</file>
+		<file>icons/dark/actions/16x16/colorpicker_harmony_tetrad.svg</file>
 		<file>icons/dark/actions/16x16/newstyle.svg</file>
 		<file>icons/dark/actions/16x16/plaincolor.svg</file>
 		<file>icons/dark/actions/16x16/newpage.svg</file>

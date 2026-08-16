@@ -38,6 +38,7 @@
 #include <QRectF>
 #include <QSettings>
 #include <QSplitter>
+#include <QStackedWidget>
 #include <QRadioButton>
 #include <QButtonGroup>
 
@@ -182,6 +183,7 @@ private:
   void drawHueRing();
   void drawSatValueTriangle();
   void drawCurrentColorMark();
+  void drawHarmonyMarks();
   void drawHueRingBaton(int hue, float innerDist, float outerDist,
                         const QPointF &center);
   void computeAdvancedSVTriangle();
@@ -521,6 +523,14 @@ class PlainColorPage final : public StyleEditorPage {
   QWidget *m_pickerChrome;
   QWidget *m_sectionBar;
   QToolButton *m_svShapeBtn;
+  QWidget *m_featureBar        = nullptr;
+  QStackedWidget *m_featureStack = nullptr;
+  QToolButton *m_collectorBtn  = nullptr;
+  QWidget *m_collectorGrid     = nullptr;
+  QToolButton *m_historyBtn    = nullptr;
+  QWidget *m_historyGrid       = nullptr;
+  QToolButton *m_harmonyBtn    = nullptr;
+  QWidget *m_harmonyPane       = nullptr;
   QToolButton *m_wheelKindBtn;
   QToolButton *m_rectKindBtn;
   QToolButton *m_advancedModeBtn;

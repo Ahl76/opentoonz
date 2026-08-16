@@ -24,6 +24,7 @@
 #include "tconvert.h"
 #include "tfiletype.h"
 #include "tsystem.h"
+#include "tenv.h"
 #include "tundo.h"
 #include "tcolorstyles.h"
 #include "tpalette.h"
@@ -57,8 +58,10 @@
 #include <cmath>
 #include <QStyleOptionSlider>
 #include <QToolTip>
+#include <QHelpEvent>
 #include <QSplitter>
 #include <QMenu>
+#include <QStringList>
 #include <QOpenGLFramebufferObject>
 #include <QEvent>
 #include <QMouseEvent>
@@ -89,6 +92,14 @@ TEnv::IntVar StyleEditorShowSectionToggles("StyleEditorShowSectionToggles", 1);
 TEnv::IntVar StyleEditorShowPickerKindButtons(
     "StyleEditorShowPickerKindButtons", 1);
 TEnv::IntVar StyleEditorShowVarButton("StyleEditorShowVarButton", 1);
+TEnv::IntVar StyleEditorShowFeatureBar("StyleEditorShowFeatureBar", 1);
+TEnv::IntVar StyleEditorShowCollectorButton("StyleEditorShowCollectorButton",
+                                            1);
+TEnv::IntVar StyleEditorShowHistoryButton("StyleEditorShowHistoryButton", 1);
+TEnv::StringVar StyleEditorColorCollector("StyleEditorColorCollector", "");
+TEnv::StringVar StyleEditorColorHistory("StyleEditorColorHistory", "");
+TEnv::IntVar StyleEditorShowHarmonyButton("StyleEditorShowHarmonyButton", 1);
+TEnv::IntVar StyleEditorHarmonyCut("StyleEditorHarmonyCut", 0);
 
 using namespace StyleEditorGUI;
 
@@ -110,6 +121,51 @@ AdvancedPickerKind normalizedPickerKind(int kindId) {
   if (kindId == static_cast<int>(AdvancedPickerKind::Rectangle))
     return AdvancedPickerKind::Rectangle;
   return AdvancedPickerKind::Wheel;
+}
+
+enum HarmonyCut { HarmonyNone = 0, HarmonyComplementary = 1,
+                  HarmonyAnalogous = 2, HarmonyTetrad = 3 };
+
+HarmonyCut normalizedHarmonyCut(int id) {
+  if (id == HarmonyComplementary || id == HarmonyAnalogous ||
+      id == HarmonyTetrad)
+    return static_cast<HarmonyCut>(id);
+  return HarmonyNone;
+}
+
+int wrapHue(int h) {
+  h %= 360;
+  if (h < 0) h += 360;
+  if (h > 359) h = 0;
+  return h;
+}
+
+int harmonyHueCount(HarmonyCut cut) {
+  if (cut == HarmonyComplementary) return 2;
+  if (cut == HarmonyAnalogous) return 3;
+  if (cut == HarmonyTetrad) return 4;
+  return 1;
+}
+
+void fillHarmonyHues(int hue, HarmonyCut cut, int *out) {
+  hue    = wrapHue(hue);
+  out[0] = hue;
+  if (cut == HarmonyComplementary)
+    out[1] = wrapHue(hue + 180);
+  else if (cut == HarmonyAnalogous) {
+    out[1] = wrapHue(hue + 45);
+    out[2] = wrapHue(hue - 45);
+  } else if (cut == HarmonyTetrad) {
+    out[1] = wrapHue(hue + 180);
+    out[2] = wrapHue(hue + 45);
+    out[3] = wrapHue(hue + 225);
+  }
+}
+
+ColorModel colorAtHue(const ColorModel &src, int hue) {
+  ColorModel c = src;
+  c.setValue(eHue, wrapHue(hue));
+  return c;
 }
 
 }  // namespace
@@ -1069,6 +1125,7 @@ void HexagonalColorWheel::paintGL() {
   }
 
   drawCurrentColorMark();
+  drawHarmonyMarks();
   glPopMatrix();
 
   if (m_lutCalibrator && m_lutCalibrator->isValid())
@@ -1241,6 +1298,33 @@ void HexagonalColorWheel::drawCurrentColorMark() {
   glTranslatef(0.0f, 0.0f, 0.1f);
   drawColorCursor((float)marker.x(), (float)marker.y());
   glPopMatrix();
+}
+
+//-----------------------------------------------------------------------------
+
+void HexagonalColorWheel::drawHarmonyMarks() {
+  const HarmonyCut cut = normalizedHarmonyCut(StyleEditorHarmonyCut);
+  if (cut == HarmonyNone) return;
+  int hues[4];
+  fillHarmonyHues(m_color.getValue(eHue), cut, hues);
+  const int n = harmonyHueCount(cut);
+  for (int i = 1; i < n; ++i) {
+    const int hue = hues[i];
+    if (m_pageMode == ColorPageMode::Classic) {
+      const int h = 360 - hue;
+      glPushMatrix();
+      float phi = (float)(h % 60 - 30) / 180.0f * 3.1415f;
+      float d   = m_hexTriHeight / cosf(phi);
+      glTranslatef(m_wp[0].x(), m_wp[0].y(), 0.1f);
+      glRotatef(h, 0.0, 0.0, 1.0);
+      glTranslatef(d, 0.0f, 0.0f);
+      glRotatef(-h, 0.0, 0.0, 1.0);
+      drawColorCursor(0.0f, 0.0f);
+      glPopMatrix();
+    } else {
+      drawHueRingBaton(hue, m_innerRadius, m_outerRadius, m_circleCenter);
+    }
+  }
 }
 
 //-----------------------------------------------------------------------------
@@ -1580,6 +1664,33 @@ void ColorSlider::paintEvent(QPaintEvent *event) {
 
   if (!bgPixmap.isNull()) {
     p.drawTiledPixmap(x, y, w, h, bgPixmap);
+  }
+
+  if (m_channel == eHue) {
+    const HarmonyCut cut = normalizedHarmonyCut(StyleEditorHarmonyCut);
+    if (cut != HarmonyNone) {
+      int hues[4];
+      fillHarmonyHues(m_color.getValue(eHue), cut, hues);
+      const int n   = harmonyHueCount(cut);
+      const int max = maximum();
+      p.save();
+      for (int i = 1; i < n; ++i) {
+        const int pos = QStyle::sliderPositionFromValue(0, max, hues[i],
+                                                        isVertical ? h : w,
+                                                        isVertical);
+        p.setPen(QPen(QColor(20, 20, 20), 3));
+        if (isVertical)
+          p.drawLine(x, y + pos, x + w, y + pos);
+        else
+          p.drawLine(x + pos, y, x + pos, y + h);
+        p.setPen(QPen(Qt::white, 1));
+        if (isVertical)
+          p.drawLine(x, y + pos, x + w, y + pos);
+        else
+          p.drawLine(x + pos, y, x + pos, y + h);
+      }
+      p.restore();
+    }
   }
 
   /*!
@@ -2234,6 +2345,377 @@ public:
   }
 };
 
+class ColorCollectorGrid final : public QWidget {
+  static const int kCols = 8;
+  static const int kRows = 4;
+  static const int kCount = kCols * kRows;
+  static const int kGap   = 3;
+  ColorModel m_slots[kCount];
+  bool m_filled[kCount];
+  std::function<ColorModel()> m_current;
+  std::function<void(const ColorModel &)> m_pick;
+
+  QRect cellRect(int i) const {
+    const QRect area = contentsRect().adjusted(kGap, kGap, -kGap, -kGap);
+    if (area.width() <= 0 || area.height() <= 0) return QRect();
+    const int r = i / kCols;
+    const int c = i % kCols;
+    const int cw = (area.width() - kGap * (kCols - 1)) / kCols;
+    const int ch = (area.height() - kGap * (kRows - 1)) / kRows;
+    if (cw <= 0 || ch <= 0) return QRect();
+    return QRect(area.x() + c * (cw + kGap), area.y() + r * (ch + kGap), cw,
+                 ch);
+  }
+
+  int hit(const QPoint &p) const {
+    for (int i = 0; i < kCount; ++i)
+      if (cellRect(i).contains(p)) return i;
+    return -1;
+  }
+
+  void persist() {
+    QStringList parts;
+    parts.reserve(kCount);
+    for (int i = 0; i < kCount; ++i) {
+      if (!m_filled[i]) {
+        parts.append(QStringLiteral("-"));
+        continue;
+      }
+      const TPixel32 p = m_slots[i].getTPixel();
+      parts.append(QColor(p.r, p.g, p.b, p.m).name(QColor::HexArgb));
+    }
+    StyleEditorColorCollector = parts.join(QLatin1Char(',')).toStdString();
+  }
+
+  void restore() {
+    const QString raw =
+        QString::fromStdString((std::string)StyleEditorColorCollector);
+    const QStringList parts = raw.split(QLatin1Char(','));
+    for (int i = 0; i < kCount; ++i) {
+      m_filled[i] = false;
+      m_slots[i]  = ColorModel();
+      if (i >= parts.size()) continue;
+      const QString s = parts[i].trimmed();
+      if (s.isEmpty() || s == QLatin1String("-")) continue;
+      const QColor qc(s);
+      if (!qc.isValid()) continue;
+      m_slots[i].setTPixel(TPixel32((UCHAR)qc.red(), (UCHAR)qc.green(),
+                                    (UCHAR)qc.blue(), (UCHAR)qc.alpha()));
+      m_filled[i] = true;
+    }
+  }
+
+protected:
+  void paintEvent(QPaintEvent *) override {
+    QPainter p(this);
+    p.fillRect(rect(), palette().window());
+    for (int i = 0; i < kCount; ++i) {
+      const QRect r = cellRect(i);
+      if (!r.isValid()) continue;
+      if (m_filled[i]) {
+        const TPixel32 pix = m_slots[i].getTPixel();
+        p.fillRect(r, QColor(pix.r, pix.g, pix.b, pix.m));
+      } else {
+        p.fillRect(r, palette().mid());
+      }
+      p.setPen(QPen(palette().mid(), 1));
+      p.drawRect(r.adjusted(0, 0, -1, -1));
+    }
+  }
+
+  void collectAt(int i) {
+    if (!m_current) return;
+    m_slots[i]  = m_current();
+    m_filled[i] = true;
+    persist();
+    update();
+  }
+
+  void mousePressEvent(QMouseEvent *e) override {
+    const int i = hit(e->pos());
+    if (i < 0 || e->button() != Qt::LeftButton) {
+      QWidget::mousePressEvent(e);
+      return;
+    }
+    if (e->modifiers() & Qt::AltModifier) {
+      collectAt(i);
+      e->accept();
+      return;
+    }
+    if (m_filled[i] && m_pick) m_pick(m_slots[i]);
+    e->accept();
+  }
+
+  bool event(QEvent *e) override {
+    if (e->type() == QEvent::ToolTip) {
+      QHelpEvent *he = static_cast<QHelpEvent *>(e);
+      const int i    = hit(he->pos());
+      if (i >= 0)
+        QToolTip::showText(
+            he->globalPos(),
+            m_filled[i] ? tr("Apply") : tr("Alt + click: Collect color"), this);
+      else
+        QToolTip::hideText();
+      return true;
+    }
+    return QWidget::event(e);
+  }
+
+public:
+  explicit ColorCollectorGrid(QWidget *parent) : QWidget(parent) {
+    setMinimumSize(0, 0);
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    setMouseTracking(true);
+    for (int i = 0; i < kCount; ++i) m_filled[i] = false;
+    restore();
+  }
+
+  void setCurrent(std::function<ColorModel()> cb) { m_current = std::move(cb); }
+  void setPick(std::function<void(const ColorModel &)> cb) {
+    m_pick = std::move(cb);
+  }
+};
+
+class ColorHistoryGrid final : public QWidget {
+  static const int kCols  = 8;
+  static const int kRows  = 4;
+  static const int kCount = kCols * kRows;
+  static const int kGap   = 3;
+  ColorModel m_slots[kCount];
+  int m_used = 0;
+  std::function<void(const ColorModel &)> m_pick;
+
+  QRect cellRect(int i) const {
+    const QRect area = contentsRect().adjusted(kGap, kGap, -kGap, -kGap);
+    if (area.width() <= 0 || area.height() <= 0) return QRect();
+    const int r  = i / kCols;
+    const int c  = i % kCols;
+    const int cw = (area.width() - kGap * (kCols - 1)) / kCols;
+    const int ch = (area.height() - kGap * (kRows - 1)) / kRows;
+    if (cw <= 0 || ch <= 0) return QRect();
+    return QRect(area.x() + c * (cw + kGap), area.y() + r * (ch + kGap), cw,
+                 ch);
+  }
+
+  int hit(const QPoint &p) const {
+    for (int i = 0; i < kCount; ++i)
+      if (cellRect(i).contains(p)) return i;
+    return -1;
+  }
+
+  void persist() {
+    QStringList parts;
+    parts.reserve(m_used);
+    for (int i = 0; i < m_used; ++i) {
+      const TPixel32 p = m_slots[i].getTPixel();
+      parts.append(QColor(p.r, p.g, p.b, p.m).name(QColor::HexArgb));
+    }
+    StyleEditorColorHistory = parts.join(QLatin1Char(',')).toStdString();
+  }
+
+  void restore() {
+    m_used              = 0;
+    const QString raw =
+        QString::fromStdString((std::string)StyleEditorColorHistory);
+    const QStringList parts = raw.split(QLatin1Char(','));
+    for (const QString &s : parts) {
+      if (m_used >= kCount) break;
+      const QColor qc(s.trimmed());
+      if (!qc.isValid()) continue;
+      m_slots[m_used].setTPixel(TPixel32((UCHAR)qc.red(), (UCHAR)qc.green(),
+                                         (UCHAR)qc.blue(), (UCHAR)qc.alpha()));
+      ++m_used;
+    }
+  }
+
+protected:
+  void paintEvent(QPaintEvent *) override {
+    QPainter p(this);
+    p.fillRect(rect(), palette().window());
+    for (int i = 0; i < kCount; ++i) {
+      const QRect r = cellRect(i);
+      if (!r.isValid()) continue;
+      if (i < m_used) {
+        const TPixel32 pix = m_slots[i].getTPixel();
+        p.fillRect(r, QColor(pix.r, pix.g, pix.b, pix.m));
+      } else {
+        p.fillRect(r, palette().mid());
+      }
+      p.setPen(QPen(palette().mid(), 1));
+      p.drawRect(r.adjusted(0, 0, -1, -1));
+    }
+  }
+
+  void mousePressEvent(QMouseEvent *e) override {
+    const int i = hit(e->pos());
+    if (i < 0 || e->button() != Qt::LeftButton) {
+      QWidget::mousePressEvent(e);
+      return;
+    }
+    if (i < m_used && m_pick) m_pick(m_slots[i]);
+    e->accept();
+  }
+
+  bool event(QEvent *e) override {
+    if (e->type() == QEvent::ToolTip) {
+      QHelpEvent *he = static_cast<QHelpEvent *>(e);
+      const int i    = hit(he->pos());
+      if (i >= 0 && i < m_used)
+        QToolTip::showText(he->globalPos(), tr("Apply"), this);
+      else
+        QToolTip::hideText();
+      return true;
+    }
+    return QWidget::event(e);
+  }
+
+public:
+  explicit ColorHistoryGrid(QWidget *parent) : QWidget(parent) {
+    setMinimumSize(0, 0);
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    setMouseTracking(true);
+    restore();
+  }
+
+  void push(const ColorModel &c) {
+    const TPixel32 pix = c.getTPixel();
+    if (m_used > 0 && m_slots[0].getTPixel() == pix) return;
+    const int n = std::min(m_used, kCount - 1);
+    for (int i = n; i > 0; --i) m_slots[i] = m_slots[i - 1];
+    m_slots[0] = c;
+    if (m_used < kCount) ++m_used;
+    persist();
+    update();
+  }
+
+  void setPick(std::function<void(const ColorModel &)> cb) {
+    m_pick = std::move(cb);
+  }
+};
+
+class ColorHarmonyPane final : public QWidget {
+  static const int kGap = 3;
+  QButtonGroup *m_cuts;
+  QToolButton *m_cutBtn[4];
+  ColorModel m_src;
+  std::function<void(const ColorModel &)> m_pick;
+  std::function<void()> m_onCut;
+
+  HarmonyCut cut() const {
+    return normalizedHarmonyCut(StyleEditorHarmonyCut);
+  }
+
+  QRect chipRect(int i, int n) const {
+    const QRect area = contentsRect().adjusted(4, 26, -4, -4);
+    if (n <= 0 || area.width() <= 0 || area.height() <= 0) return QRect();
+    const int cw = (area.width() - kGap * (n - 1)) / n;
+    if (cw <= 0) return QRect();
+    return QRect(area.x() + i * (cw + kGap), area.y(), cw, area.height());
+  }
+
+  int hit(const QPoint &p) const {
+    const int n = harmonyHueCount(cut());
+    for (int i = 0; i < n; ++i)
+      if (chipRect(i, n).contains(p)) return i;
+    return -1;
+  }
+
+protected:
+  void paintEvent(QPaintEvent *) override {
+    QPainter p(this);
+    p.fillRect(rect(), palette().window());
+    const HarmonyCut c = cut();
+    const int n        = harmonyHueCount(c);
+    int hues[4];
+    fillHarmonyHues(m_src.getValue(eHue), c, hues);
+    for (int i = 0; i < n; ++i) {
+      const QRect r = chipRect(i, n);
+      if (!r.isValid()) continue;
+      const TPixel32 pix = colorAtHue(m_src, hues[i]).getTPixel();
+      p.fillRect(r, QColor(pix.r, pix.g, pix.b, pix.m));
+      p.setPen(QPen(palette().mid(), 1));
+      p.drawRect(r.adjusted(0, 0, -1, -1));
+    }
+  }
+
+  void mousePressEvent(QMouseEvent *e) override {
+    const int i = hit(e->pos());
+    if (i < 0 || e->button() != Qt::LeftButton) {
+      QWidget::mousePressEvent(e);
+      return;
+    }
+    if (m_pick) {
+      int hues[4];
+      fillHarmonyHues(m_src.getValue(eHue), cut(), hues);
+      m_pick(colorAtHue(m_src, hues[i]));
+    }
+    e->accept();
+  }
+
+  bool event(QEvent *e) override {
+    if (e->type() == QEvent::ToolTip) {
+      QHelpEvent *he = static_cast<QHelpEvent *>(e);
+      const int i    = hit(he->pos());
+      if (i >= 0)
+        QToolTip::showText(he->globalPos(), tr("Apply"), this);
+      else
+        QToolTip::hideText();
+      return true;
+    }
+    return QWidget::event(e);
+  }
+
+public:
+  explicit ColorHarmonyPane(QWidget *parent) : QWidget(parent) {
+    setMinimumSize(0, 0);
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    setMouseTracking(true);
+    m_cuts = new QButtonGroup(this);
+    m_cuts->setExclusive(true);
+    const char *icons[4] = {"colorpicker_harmony_none",
+                            "colorpicker_harmony_comp",
+                            "colorpicker_harmony_analog",
+                            "colorpicker_harmony_tetrad"};
+    for (int i = 0; i < 4; ++i) {
+      m_cutBtn[i] = new QToolButton(this);
+      m_cutBtn[i]->setCheckable(true);
+      m_cutBtn[i]->setAutoRaise(true);
+      m_cutBtn[i]->setFocusPolicy(Qt::NoFocus);
+      m_cutBtn[i]->setFixedSize(20, 20);
+      m_cutBtn[i]->setIconSize(QSize(16, 16));
+      m_cutBtn[i]->setIcon(createQIcon(icons[i]));
+      m_cuts->addButton(m_cutBtn[i], i);
+    }
+    m_cutBtn[0]->setToolTip(tr("No cut"));
+    m_cutBtn[1]->setToolTip(tr("Complementary"));
+    m_cutBtn[2]->setToolTip(tr("Analogous"));
+    m_cutBtn[3]->setToolTip(tr("Double complementary"));
+    const int cur = (int)normalizedHarmonyCut(StyleEditorHarmonyCut);
+    m_cutBtn[cur]->setChecked(true);
+    connect(m_cuts, static_cast<void (QButtonGroup::*)(int)>(
+                        &QButtonGroup::buttonClicked),
+            this, [this](int id) {
+              StyleEditorHarmonyCut = id;
+              update();
+              if (m_onCut) m_onCut();
+            });
+  }
+
+  void resizeEvent(QResizeEvent *e) override {
+    QWidget::resizeEvent(e);
+    for (int i = 0; i < 4; ++i) m_cutBtn[i]->move(4 + i * 22, 3);
+  }
+
+  void setFrom(const ColorModel &color) {
+    m_src = color;
+    update();
+  }
+  void setPick(std::function<void(const ColorModel &)> cb) {
+    m_pick = std::move(cb);
+  }
+  void setOnCut(std::function<void()> cb) { m_onCut = std::move(cb); }
+};
+
 class SectionToggleBar final : public QWidget {
   static const int kGap     = 1;
   static const int kRowH    = 20;
@@ -2521,7 +3003,167 @@ PlainColorPage::PlainColorPage(QWidget *parent)
     }
     m_slidersContainer->setLayout(slidersLayout);
     m_slidersContainer->setMinimumWidth(0);
-    m_vSplitter->addWidget(m_slidersContainer);
+
+    m_featureBar = new QWidget(this);
+    m_featureBar->setFixedHeight(22);
+    m_featureBar->setMinimumWidth(0);
+    QHBoxLayout *featureLay = new QHBoxLayout(m_featureBar);
+    featureLay->setContentsMargins(2, 1, 2, 1);
+    featureLay->setSpacing(2);
+
+    m_collectorBtn = new QToolButton(m_featureBar);
+    m_collectorBtn->setCheckable(true);
+    m_collectorBtn->setAutoRaise(true);
+    m_collectorBtn->setFocusPolicy(Qt::NoFocus);
+    m_collectorBtn->setFixedSize(20, 20);
+    m_collectorBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    m_collectorBtn->setIconSize(QSize(20, 20));
+    m_collectorBtn->setIcon(createQIcon("colorpicker_collector"));
+    m_collectorBtn->setToolTip(tr("Color Collector"));
+    featureLay->addWidget(m_collectorBtn, 0);
+
+    m_historyBtn = new QToolButton(m_featureBar);
+    m_historyBtn->setCheckable(true);
+    m_historyBtn->setAutoRaise(true);
+    m_historyBtn->setFocusPolicy(Qt::NoFocus);
+    m_historyBtn->setFixedSize(20, 20);
+    m_historyBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    m_historyBtn->setIconSize(QSize(20, 20));
+    m_historyBtn->setIcon(createQIcon("colorpicker_history"));
+    m_historyBtn->setToolTip(tr("Color History"));
+    featureLay->addWidget(m_historyBtn, 0);
+
+    m_harmonyBtn = new QToolButton(m_featureBar);
+    m_harmonyBtn->setCheckable(true);
+    m_harmonyBtn->setAutoRaise(true);
+    m_harmonyBtn->setFocusPolicy(Qt::NoFocus);
+    m_harmonyBtn->setFixedSize(20, 20);
+    m_harmonyBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    m_harmonyBtn->setIconSize(QSize(20, 20));
+    m_harmonyBtn->setIcon(createQIcon("colorpicker_harmony"));
+    m_harmonyBtn->setToolTip(tr("Color Harmonies"));
+    featureLay->addWidget(m_harmonyBtn, 0);
+    featureLay->addStretch(1);
+
+    QFrame *collectorFrame = new QFrame(this);
+    collectorFrame->setObjectName("PlainColorPageParts");
+    collectorFrame->setMinimumWidth(0);
+    QVBoxLayout *collectorLay = new QVBoxLayout(collectorFrame);
+    collectorLay->setContentsMargins(4, 4, 4, 4);
+    collectorLay->setSpacing(0);
+    m_collectorGrid = new ColorCollectorGrid(collectorFrame);
+    collectorLay->addWidget(m_collectorGrid, 1);
+    static_cast<ColorCollectorGrid *>(m_collectorGrid)
+        ->setCurrent([this]() { return m_color; });
+    static_cast<ColorCollectorGrid *>(m_collectorGrid)
+        ->setPick([this](const ColorModel &c) {
+          if (!(m_color == c)) {
+            m_color = c;
+            updateControls();
+          }
+          if (m_signalEnabled) emit colorChanged(m_color, false);
+          if (m_historyGrid)
+            static_cast<ColorHistoryGrid *>(m_historyGrid)->push(m_color);
+        });
+
+    QFrame *historyFrame = new QFrame(this);
+    historyFrame->setObjectName("PlainColorPageParts");
+    historyFrame->setMinimumWidth(0);
+    QVBoxLayout *historyLay = new QVBoxLayout(historyFrame);
+    historyLay->setContentsMargins(4, 4, 4, 4);
+    historyLay->setSpacing(0);
+    m_historyGrid = new ColorHistoryGrid(historyFrame);
+    historyLay->addWidget(m_historyGrid, 1);
+    static_cast<ColorHistoryGrid *>(m_historyGrid)
+        ->setPick([this](const ColorModel &c) {
+          if (!(m_color == c)) {
+            m_color = c;
+            updateControls();
+          }
+          if (m_signalEnabled) emit colorChanged(m_color, false);
+        });
+
+    QFrame *harmonyFrame = new QFrame(this);
+    harmonyFrame->setObjectName("PlainColorPageParts");
+    harmonyFrame->setMinimumWidth(0);
+    QVBoxLayout *harmonyLay = new QVBoxLayout(harmonyFrame);
+    harmonyLay->setContentsMargins(0, 0, 0, 0);
+    harmonyLay->setSpacing(0);
+    m_harmonyPane = new ColorHarmonyPane(harmonyFrame);
+    harmonyLay->addWidget(m_harmonyPane, 1);
+    static_cast<ColorHarmonyPane *>(m_harmonyPane)
+        ->setPick([this](const ColorModel &c) {
+          if (!(m_color == c)) {
+            m_color = c;
+            updateControls();
+          }
+          if (m_signalEnabled) emit colorChanged(m_color, false);
+          if (m_historyGrid)
+            static_cast<ColorHistoryGrid *>(m_historyGrid)->push(m_color);
+        });
+    static_cast<ColorHarmonyPane *>(m_harmonyPane)->setOnCut([this]() {
+      if (m_hexagonalColorWheel) m_hexagonalColorWheel->update();
+      if (m_squaredColorWheel) m_squaredColorWheel->update();
+      if (m_verticalSlider) m_verticalSlider->update();
+      for (int i = 0; i < 7; ++i)
+        if (m_channelControls[i]) m_channelControls[i]->update();
+    });
+
+    m_featureStack = new QStackedWidget(this);
+    m_featureStack->addWidget(m_slidersContainer);
+    m_featureStack->addWidget(collectorFrame);
+    m_featureStack->addWidget(historyFrame);
+    m_featureStack->addWidget(harmonyFrame);
+    m_featureStack->setCurrentIndex(0);
+    auto uncheckBtn = [](QToolButton *btn) {
+      if (!btn || !btn->isChecked()) return;
+      bool blocked = btn->blockSignals(true);
+      btn->setChecked(false);
+      btn->blockSignals(blocked);
+    };
+    auto showFeaturePage = [this]() {
+      if (!m_featureStack) return;
+      if (m_harmonyBtn && m_harmonyBtn->isChecked())
+        m_featureStack->setCurrentIndex(3);
+      else if (m_historyBtn && m_historyBtn->isChecked())
+        m_featureStack->setCurrentIndex(2);
+      else if (m_collectorBtn && m_collectorBtn->isChecked())
+        m_featureStack->setCurrentIndex(1);
+      else
+        m_featureStack->setCurrentIndex(0);
+    };
+    connect(m_collectorBtn, &QToolButton::toggled, this,
+            [this, uncheckBtn, showFeaturePage](bool on) {
+              if (on) {
+                uncheckBtn(m_historyBtn);
+                uncheckBtn(m_harmonyBtn);
+              }
+              showFeaturePage();
+            });
+    connect(m_historyBtn, &QToolButton::toggled, this,
+            [this, uncheckBtn, showFeaturePage](bool on) {
+              if (on) {
+                uncheckBtn(m_collectorBtn);
+                uncheckBtn(m_harmonyBtn);
+              }
+              showFeaturePage();
+            });
+    connect(m_harmonyBtn, &QToolButton::toggled, this,
+            [this, uncheckBtn, showFeaturePage](bool on) {
+              if (on) {
+                uncheckBtn(m_collectorBtn);
+                uncheckBtn(m_historyBtn);
+              }
+              showFeaturePage();
+            });
+
+    QWidget *featureHost = new QWidget(this);
+    QVBoxLayout *hostLay = new QVBoxLayout(featureHost);
+    hostLay->setContentsMargins(0, 0, 0, 0);
+    hostLay->setSpacing(0);
+    hostLay->addWidget(m_featureBar, 0);
+    hostLay->addWidget(m_featureStack, 1);
+    m_vSplitter->addWidget(featureHost);
 
     m_pickerChrome = new QWidget(this);
     m_pickerChrome->setFixedHeight(20);
@@ -2592,6 +3234,8 @@ PlainColorPage::PlainColorPage(QWidget *parent)
             updateControls();
           }
           if (m_signalEnabled) emit colorChanged(m_color, false);
+          if (m_historyGrid)
+            static_cast<ColorHistoryGrid *>(m_historyGrid)->push(m_color);
         });
     QVBoxLayout *swatchLay = new QVBoxLayout(m_swatchFrame);
     swatchLay->setContentsMargins(4, 2, 4, 2);
@@ -2630,7 +3274,11 @@ PlainColorPage::PlainColorPage(QWidget *parent)
   };
   enableCtx(this);
   enableCtx(m_pickerFrame);
+  enableCtx(m_featureBar);
   enableCtx(m_slidersContainer);
+  if (m_collectorGrid) enableCtx(m_collectorGrid);
+  if (m_historyGrid) enableCtx(m_historyGrid);
+  if (m_harmonyPane) enableCtx(m_harmonyPane);
   enableCtx(m_hsvFrame);
   enableCtx(m_alphaFrame);
   enableCtx(m_rgbFrame);
@@ -2698,6 +3346,8 @@ void PlainColorPage::updateControls() {
 
   if (m_variationStrip)
     static_cast<ColorVariationStrip *>(m_variationStrip)->setFrom(m_color);
+  if (m_harmonyPane)
+    static_cast<ColorHarmonyPane *>(m_harmonyPane)->setFrom(m_color);
 }
 
 //-----------------------------------------------------------------------------
@@ -2861,6 +3511,47 @@ void PlainColorPage::updatePickerChrome() {
     m_svShapeBtn->setToolTip(tr("Switch to the square chromatic space"));
   }
   m_pickerChrome->setVisible(showTopChrome);
+  const bool showFeatureBar = StyleEditorShowFeatureBar != 0;
+  const bool showCollectorBtn =
+      showFeatureBar && StyleEditorShowCollectorButton != 0;
+  const bool showHistoryBtn =
+      showFeatureBar && StyleEditorShowHistoryButton != 0;
+  const bool showHarmonyBtn =
+      showFeatureBar && StyleEditorShowHarmonyButton != 0;
+  auto uncheckFeature = [](QToolButton *btn) {
+    if (!btn || !btn->isChecked()) return;
+    bool blocked = btn->blockSignals(true);
+    btn->setChecked(false);
+    btn->blockSignals(blocked);
+  };
+  if (m_collectorBtn) {
+    m_collectorBtn->setVisible(showCollectorBtn);
+    if (!showCollectorBtn) uncheckFeature(m_collectorBtn);
+  }
+  if (m_historyBtn) {
+    m_historyBtn->setVisible(showHistoryBtn);
+    if (!showHistoryBtn) uncheckFeature(m_historyBtn);
+  }
+  if (m_harmonyBtn) {
+    m_harmonyBtn->setVisible(showHarmonyBtn);
+    if (!showHarmonyBtn) uncheckFeature(m_harmonyBtn);
+  }
+  if (!showFeatureBar) {
+    uncheckFeature(m_collectorBtn);
+    uncheckFeature(m_historyBtn);
+    uncheckFeature(m_harmonyBtn);
+  }
+  if (m_featureBar) m_featureBar->setVisible(showFeatureBar);
+  if (m_featureStack) {
+    if (m_harmonyBtn && m_harmonyBtn->isChecked())
+      m_featureStack->setCurrentIndex(3);
+    else if (m_historyBtn && m_historyBtn->isChecked())
+      m_featureStack->setCurrentIndex(2);
+    else if (m_collectorBtn && m_collectorBtn->isChecked())
+      m_featureStack->setCurrentIndex(1);
+    else
+      m_featureStack->setCurrentIndex(0);
+  }
   if (QLayout *lay = m_pickerChrome->layout()) lay->activate();
   m_pickerChrome->updateGeometry();
   m_sectionBar->updateGeometry();
@@ -2999,6 +3690,8 @@ void PlainColorPage::onWheelSliderChanged(int value) {
 
 void PlainColorPage::onWheelSliderReleased() {
   if (m_signalEnabled) emit colorChanged(m_color, false);
+  if (m_historyGrid)
+    static_cast<ColorHistoryGrid *>(m_historyGrid)->push(m_color);
 }
 
 //-----------------------------------------------------------------------------
@@ -3011,6 +3704,8 @@ void PlainColorPage::onControlChanged(const ColorModel &color,
   }
 
   if (m_signalEnabled) emit colorChanged(m_color, isDragging);
+  if (!isDragging && m_historyGrid)
+    static_cast<ColorHistoryGrid *>(m_historyGrid)->push(m_color);
 }
 
 //-----------------------------------------------------------------------------
@@ -3021,6 +3716,8 @@ void PlainColorPage::onWheelChanged(const ColorModel &color, bool isDragging) {
     updateControls();
   }
   if (m_signalEnabled) emit colorChanged(m_color, isDragging);
+  if (!isDragging && m_historyGrid)
+    static_cast<ColorHistoryGrid *>(m_historyGrid)->push(m_color);
 }
 
 //-----------------------------------------------------------------------------
@@ -4261,7 +4958,6 @@ QFrame *StyleEditor::createBottomWidget() {
   menu->addAction(m_alphaAction);
   menu->addAction(m_rgbAction);
   menu->addAction(m_hexAction);
-  menu->addAction(m_swatchAction);
   menu->addAction(m_searchAction);
 
   m_sliderAppearanceAG = new QActionGroup(this);
@@ -5404,6 +6100,25 @@ void StyleEditor::fillPickerContextMenu(QMenu *menu) {
   showVarBtn->setCheckable(true);
   showVarBtn->setData(QStringLiteral("chrome:var"));
   showVarBtn->setChecked(StyleEditorShowVarButton != 0);
+  QMenu *featuresMenu = menu->addMenu(tr("Style Editor Features"));
+  QAction *showFeatureBar =
+      featuresMenu->addAction(tr("Show Style Editor Features Bar"));
+  showFeatureBar->setCheckable(true);
+  showFeatureBar->setData(QStringLiteral("chrome:feature"));
+  showFeatureBar->setChecked(StyleEditorShowFeatureBar != 0);
+  QAction *showCollectorBtn =
+      featuresMenu->addAction(tr("Show Color Collector"));
+  showCollectorBtn->setCheckable(true);
+  showCollectorBtn->setData(QStringLiteral("chrome:collector"));
+  showCollectorBtn->setChecked(StyleEditorShowCollectorButton != 0);
+  QAction *showHistoryBtn = featuresMenu->addAction(tr("Show Color History"));
+  showHistoryBtn->setCheckable(true);
+  showHistoryBtn->setData(QStringLiteral("chrome:history"));
+  showHistoryBtn->setChecked(StyleEditorShowHistoryButton != 0);
+  QAction *showHarmonyBtn = featuresMenu->addAction(tr("Show Color Harmonies"));
+  showHarmonyBtn->setCheckable(true);
+  showHarmonyBtn->setData(QStringLiteral("chrome:harmony"));
+  showHarmonyBtn->setChecked(StyleEditorShowHarmonyButton != 0);
   if (advanced) {
     QAction *showShapeBtn = menu->addAction(tr("Show Chromatic Space Icon"));
     showShapeBtn->setCheckable(true);
@@ -5468,6 +6183,18 @@ void StyleEditor::onPickerContextMenu(const QPoint &globalPos) {
     m_plainColorPage->updatePickerChrome();
   } else if (key == QStringLiteral("chrome:var")) {
     StyleEditorShowVarButton = chosen->isChecked() ? 1 : 0;
+    m_plainColorPage->updatePickerChrome();
+  } else if (key == QStringLiteral("chrome:feature")) {
+    StyleEditorShowFeatureBar = chosen->isChecked() ? 1 : 0;
+    m_plainColorPage->updatePickerChrome();
+  } else if (key == QStringLiteral("chrome:collector")) {
+    StyleEditorShowCollectorButton = chosen->isChecked() ? 1 : 0;
+    m_plainColorPage->updatePickerChrome();
+  } else if (key == QStringLiteral("chrome:history")) {
+    StyleEditorShowHistoryButton = chosen->isChecked() ? 1 : 0;
+    m_plainColorPage->updatePickerChrome();
+  } else if (key == QStringLiteral("chrome:harmony")) {
+    StyleEditorShowHarmonyButton = chosen->isChecked() ? 1 : 0;
     m_plainColorPage->updatePickerChrome();
   }
 }
