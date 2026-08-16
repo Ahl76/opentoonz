@@ -100,6 +100,9 @@ TEnv::StringVar StyleEditorColorCollector("StyleEditorColorCollector", "");
 TEnv::StringVar StyleEditorColorHistory("StyleEditorColorHistory", "");
 TEnv::IntVar StyleEditorShowHarmonyButton("StyleEditorShowHarmonyButton", 1);
 TEnv::IntVar StyleEditorHarmonyCut("StyleEditorHarmonyCut", 0);
+TEnv::IntVar StyleEditorShowShadesButton("StyleEditorShowShadesButton", 1);
+TEnv::StringVar StyleEditorColorRampA("StyleEditorColorRampA", "");
+TEnv::StringVar StyleEditorColorRampB("StyleEditorColorRampB", "");
 
 using namespace StyleEditorGUI;
 
@@ -165,6 +168,73 @@ ColorModel colorAtHue(const ColorModel &src, int hue) {
   ColorModel c = src;
   c.setValue(eHue, wrapHue(hue));
   return c;
+}
+
+int lerpHue(int a, int b, double t) {
+  int d = b - a;
+  while (d > 180) d -= 360;
+  while (d < -180) d += 360;
+  return wrapHue(a + (int)std::lround(d * t));
+}
+
+ColorModel colorAtValue(const ColorModel &src, int v) {
+  ColorModel c = src;
+  c.setValue(eValue, qBound(0, v, 100));
+  return c;
+}
+
+ColorModel colorAtTemperature(const ColorModel &src, double t) {
+  ColorModel c     = src;
+  const int target = t < 0 ? 220 : 40;
+  const double amt = std::min(1.0, std::fabs(t)) * 0.7;
+  if (amt <= 0) return c;
+  c.setValue(eHue, lerpHue(src.getValue(eHue), target, amt));
+  return c;
+}
+
+ColorModel colorAtSaturation(const ColorModel &src, int s) {
+  ColorModel c = src;
+  c.setValue(eSaturation, qBound(0, s, 100));
+  return c;
+}
+
+ColorModel lerpHsv(const ColorModel &a, const ColorModel &b, double t) {
+  ColorModel c = a;
+  t            = qBound(0.0, t, 1.0);
+  c.setValue(eHue, lerpHue(a.getValue(eHue), b.getValue(eHue), t));
+  c.setValue(eSaturation,
+             qBound(0,
+                    (int)std::lround(a.getValue(eSaturation) +
+                                     (b.getValue(eSaturation) -
+                                      a.getValue(eSaturation)) *
+                                         t),
+                    100));
+  c.setValue(eValue, qBound(0,
+                            (int)std::lround(a.getValue(eValue) +
+                                             (b.getValue(eValue) -
+                                              a.getValue(eValue)) *
+                                                 t),
+                            100));
+  c.setValue(eAlpha, qBound(0,
+                            (int)std::lround(a.getValue(eAlpha) +
+                                             (b.getValue(eAlpha) -
+                                              a.getValue(eAlpha)) *
+                                                 t),
+                            255));
+  return c;
+}
+
+bool colorFromEnv(const std::string &raw, ColorModel *out) {
+  const QColor qc(QString::fromStdString(raw).trimmed());
+  if (!qc.isValid()) return false;
+  out->setTPixel(TPixel32((UCHAR)qc.red(), (UCHAR)qc.green(), (UCHAR)qc.blue(),
+                          (UCHAR)qc.alpha()));
+  return true;
+}
+
+std::string colorToEnv(const ColorModel &c) {
+  const TPixel32 p = c.getTPixel();
+  return QColor(p.r, p.g, p.b, p.m).name(QColor::HexArgb).toStdString();
 }
 
 }  // namespace
@@ -2715,6 +2785,305 @@ public:
   void setOnCut(std::function<void()> cb) { m_onCut = std::move(cb); }
 };
 
+class ColorShadesPane final : public QWidget {
+  static const int kGap    = 2;
+  static const int kRowGap = 3;
+  static const int kCols   = 11;
+  static const int kRows   = 4;
+  ColorModel m_src;
+  ColorModel m_rampA;
+  ColorModel m_rampB;
+  bool m_hasA = false;
+  bool m_hasB = false;
+  std::function<void(const ColorModel &)> m_pick;
+
+  enum Row { RowValue = 0, RowTemp = 1, RowGray = 2, RowRamp = 3 };
+
+  struct Hit {
+    int row = -1;
+    int i   = -1;
+  };
+  Hit m_hover;
+
+  QRect rowRect(int row) const {
+    const QRect area = contentsRect().adjusted(4, 4, -4, -4);
+    if (area.width() <= 0 || area.height() <= 0) return QRect();
+    const int h = (area.height() - kRowGap * (kRows - 1)) / kRows;
+    if (h <= 0) return QRect();
+    return QRect(area.x(), area.y() + row * (h + kRowGap), area.width(), h);
+  }
+
+  QRect chipRect(int row, int i) const {
+    const QRect area = rowRect(row);
+    if (!area.isValid()) return QRect();
+    const int cw = (area.width() - kGap * (kCols - 1)) / kCols;
+    if (cw <= 0) return QRect();
+    return QRect(area.x() + i * (cw + kGap), area.y(), cw, area.height());
+  }
+
+  Hit hit(const QPoint &p) const {
+    for (int row = 0; row < kRows; ++row) {
+      for (int i = 0; i < kCols; ++i)
+        if (chipRect(row, i).contains(p)) return {row, i};
+    }
+    return {};
+  }
+
+  int valueAt(int i) const { return 14 + i * (100 - 14) / (kCols - 1); }
+
+  int satAt(int i) const { return i * 100 / (kCols - 1); }
+
+  ColorModel valueColor(int i) const { return colorAtValue(m_src, valueAt(i)); }
+
+  ColorModel tempColor(int i) const {
+    const int mid = kCols / 2;
+    if (i == mid) return m_src;
+    const double t = (double)(i - mid) / (double)mid;
+    return colorAtTemperature(m_src, t);
+  }
+
+  ColorModel grayColor(int i) const {
+    return colorAtSaturation(m_src, satAt(i));
+  }
+
+  ColorModel rampColor(int i) const {
+    if (i == 0) return m_rampA;
+    if (i == kCols - 1) return m_rampB;
+    return lerpHsv(m_rampA, m_rampB, (double)i / (double)(kCols - 1));
+  }
+
+  bool rampFilled(int i) const {
+    if (i == 0) return m_hasA;
+    if (i == kCols - 1) return m_hasB;
+    return m_hasA && m_hasB;
+  }
+
+  int closestValueChip() const {
+    const int srcV = m_src.getValue(eValue);
+    int best = 0, bestD = 1000;
+    for (int i = 0; i < kCols; ++i) {
+      const int d = std::abs(valueAt(i) - srcV);
+      if (d < bestD) {
+        bestD = d;
+        best  = i;
+      }
+    }
+    return best;
+  }
+
+  int closestGrayChip() const {
+    const int srcS = m_src.getValue(eSaturation);
+    int best = 0, bestD = 1000;
+    for (int i = 0; i < kCols; ++i) {
+      const int d = std::abs(satAt(i) - srcS);
+      if (d < bestD) {
+        bestD = d;
+        best  = i;
+      }
+    }
+    return best;
+  }
+
+  void persistRamp() {
+    StyleEditorColorRampA = m_hasA ? colorToEnv(m_rampA) : std::string();
+    StyleEditorColorRampB = m_hasB ? colorToEnv(m_rampB) : std::string();
+  }
+
+  void restoreRamp() {
+    m_hasA = colorFromEnv((std::string)StyleEditorColorRampA, &m_rampA);
+    m_hasB = colorFromEnv((std::string)StyleEditorColorRampB, &m_rampB);
+  }
+
+  void drawChip(QPainter &p, const QRect &r, const QColor &fill, bool mark,
+                bool well) {
+    p.fillRect(r, fill);
+    QPen pen(palette().mid(), well ? 2 : 1);
+    p.setPen(pen);
+    p.drawRect(r.adjusted(0, 0, -1, -1));
+    if (!mark) return;
+    p.setPen(QPen(QColor(255, 255, 255), 1));
+    p.drawRect(r.adjusted(1, 1, -2, -2));
+    p.setPen(QPen(QColor(0, 0, 0), 1));
+    p.drawRect(r.adjusted(2, 2, -3, -3));
+  }
+
+  void drawOutlinedText(QPainter &p, const QRect &r, const QString &s) {
+    const int align = Qt::AlignHCenter | Qt::AlignVCenter;
+    p.setPen(QColor(0, 0, 0));
+    for (int dx = -1; dx <= 1; ++dx)
+      for (int dy = -1; dy <= 1; ++dy)
+        if (dx || dy) p.drawText(r.translated(dx, dy), align, s);
+    p.setPen(QColor(255, 255, 255));
+    p.drawText(r, align, s);
+  }
+
+  void drawHoverLabel(QPainter &p) {
+    if (m_hover.row < 0) return;
+    const QString title  = rowTip(m_hover.row);
+    const QString action = actionTip(m_hover);
+    QFont f              = font();
+    f.setPixelSize(10);
+    p.setFont(f);
+    const QFontMetrics fm(f);
+    const int w =
+        std::max(fm.horizontalAdvance(title), fm.horizontalAdvance(action));
+    const int lh    = fm.height();
+    const int lines = action.isEmpty() ? 1 : 2;
+    const int blockH = lines * lh;
+    const QRect chip = chipRect(m_hover.row, m_hover.i);
+    if (!chip.isValid()) return;
+    int x = chip.center().x() - w / 2;
+    int y = chip.bottom() + 4;
+    if (y + blockH > height() - 2) y = chip.top() - blockH - 2;
+    x = qBound(2, x, std::max(2, width() - w - 2));
+    y = qBound(2, y, std::max(2, height() - blockH - 2));
+    drawOutlinedText(p, QRect(x, y, w, lh), title);
+    if (!action.isEmpty())
+      drawOutlinedText(p, QRect(x, y + lh, w, lh), action);
+  }
+
+protected:
+  void paintEvent(QPaintEvent *) override {
+    QPainter p(this);
+    p.fillRect(rect(), palette().window());
+    const int curV = closestValueChip();
+    const int curS = closestGrayChip();
+    const int midT = kCols / 2;
+    for (int i = 0; i < kCols; ++i) {
+      const QRect r = chipRect(RowValue, i);
+      if (!r.isValid()) continue;
+      const TPixel32 pix = valueColor(i).getTPixel();
+      drawChip(p, r, QColor(pix.r, pix.g, pix.b, pix.m), i == curV, false);
+    }
+    for (int i = 0; i < kCols; ++i) {
+      const QRect r = chipRect(RowTemp, i);
+      if (!r.isValid()) continue;
+      const TPixel32 pix = tempColor(i).getTPixel();
+      drawChip(p, r, QColor(pix.r, pix.g, pix.b, pix.m), i == midT, false);
+    }
+    for (int i = 0; i < kCols; ++i) {
+      const QRect r = chipRect(RowGray, i);
+      if (!r.isValid()) continue;
+      const TPixel32 pix = grayColor(i).getTPixel();
+      drawChip(p, r, QColor(pix.r, pix.g, pix.b, pix.m), i == curS, false);
+    }
+    for (int i = 0; i < kCols; ++i) {
+      const QRect r = chipRect(RowRamp, i);
+      if (!r.isValid()) continue;
+      const bool well = (i == 0 || i == kCols - 1);
+      if (!rampFilled(i)) {
+        p.fillRect(r, palette().mid());
+        QPen pen(palette().mid(), well ? 2 : 1);
+        p.setPen(pen);
+        p.drawRect(r.adjusted(0, 0, -1, -1));
+        continue;
+      }
+      const TPixel32 pix = rampColor(i).getTPixel();
+      drawChip(p, r, QColor(pix.r, pix.g, pix.b, pix.m), false, well);
+    }
+    drawHoverLabel(p);
+  }
+
+  void mousePressEvent(QMouseEvent *e) override {
+    const Hit h = hit(e->pos());
+    if (h.row < 0 || e->button() != Qt::LeftButton) {
+      QWidget::mousePressEvent(e);
+      return;
+    }
+    if (h.row == RowRamp && (h.i == 0 || h.i == kCols - 1) &&
+        (e->modifiers() & Qt::AltModifier)) {
+      if (h.i == 0) {
+        m_rampA = m_src;
+        m_hasA  = true;
+      } else {
+        m_rampB = m_src;
+        m_hasB  = true;
+      }
+      persistRamp();
+      update();
+      e->accept();
+      return;
+    }
+    if (!m_pick) {
+      e->accept();
+      return;
+    }
+    if (h.row == RowValue)
+      m_pick(valueColor(h.i));
+    else if (h.row == RowTemp)
+      m_pick(tempColor(h.i));
+    else if (h.row == RowGray)
+      m_pick(grayColor(h.i));
+    else if (rampFilled(h.i))
+      m_pick(rampColor(h.i));
+    e->accept();
+  }
+
+  void mouseMoveEvent(QMouseEvent *e) override {
+    const Hit h = hit(e->pos());
+    if (h.row == m_hover.row && h.i == m_hover.i) return;
+    m_hover = h;
+    update();
+  }
+
+  void leaveEvent(QEvent *e) override {
+    if (m_hover.row >= 0) {
+      m_hover = {};
+      update();
+    }
+    QWidget::leaveEvent(e);
+  }
+
+  QString rowTip(int row) const {
+    if (row == RowValue) return tr("Value");
+    if (row == RowTemp) return tr("Temperature");
+    if (row == RowGray) return tr("Saturation");
+    return tr("Ramp");
+  }
+
+  QString actionTip(const Hit &h) const {
+    if (h.row == RowValue) return tr("Apply");
+    if (h.row == RowTemp) {
+      const int mid = kCols / 2;
+      if (h.i < mid) return tr("Cool");
+      if (h.i > mid) return tr("Warm");
+      return tr("Apply");
+    }
+    if (h.row == RowGray) {
+      if (h.i < closestGrayChip()) return tr("Mute");
+      return tr("Apply");
+    }
+    if (h.row == RowRamp && (h.i == 0 || h.i == kCols - 1))
+      return rampFilled(h.i) ? tr("Apply") : tr("Alt + click: Set");
+    if (h.row == RowRamp && rampFilled(h.i)) return tr("Apply");
+    return QString();
+  }
+
+  bool event(QEvent *e) override {
+    if (e->type() == QEvent::ToolTip) {
+      QToolTip::hideText();
+      return true;
+    }
+    return QWidget::event(e);
+  }
+
+public:
+  explicit ColorShadesPane(QWidget *parent) : QWidget(parent) {
+    setMinimumSize(0, 0);
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    setMouseTracking(true);
+    restoreRamp();
+  }
+
+  void setFrom(const ColorModel &color) {
+    m_src = color;
+    update();
+  }
+  void setPick(std::function<void(const ColorModel &)> cb) {
+    m_pick = std::move(cb);
+  }
+};
+
 class SectionToggleBar final : public QWidget {
   static const int kGap     = 1;
   static const int kRowH    = 20;
@@ -3042,6 +3411,17 @@ PlainColorPage::PlainColorPage(QWidget *parent)
     m_harmonyBtn->setIcon(createQIcon("colorpicker_harmony"));
     m_harmonyBtn->setToolTip(tr("Color Harmonies"));
     featureLay->addWidget(m_harmonyBtn, 0);
+
+    m_shadesBtn = new QToolButton(m_featureBar);
+    m_shadesBtn->setCheckable(true);
+    m_shadesBtn->setAutoRaise(true);
+    m_shadesBtn->setFocusPolicy(Qt::NoFocus);
+    m_shadesBtn->setFixedSize(20, 20);
+    m_shadesBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    m_shadesBtn->setIconSize(QSize(16, 16));
+    m_shadesBtn->setIcon(createQIcon("colorpicker_shades"));
+    m_shadesBtn->setToolTip(tr("Color Shades"));
+    featureLay->addWidget(m_shadesBtn, 0);
     featureLay->addStretch(1);
 
     QFrame *collectorFrame = new QFrame(this);
@@ -3108,11 +3488,31 @@ PlainColorPage::PlainColorPage(QWidget *parent)
         if (m_channelControls[i]) m_channelControls[i]->update();
     });
 
+    QFrame *shadesFrame = new QFrame(this);
+    shadesFrame->setObjectName("PlainColorPageParts");
+    shadesFrame->setMinimumWidth(0);
+    QVBoxLayout *shadesLay = new QVBoxLayout(shadesFrame);
+    shadesLay->setContentsMargins(0, 0, 0, 0);
+    shadesLay->setSpacing(0);
+    m_shadesPane = new ColorShadesPane(shadesFrame);
+    shadesLay->addWidget(m_shadesPane, 1);
+    static_cast<ColorShadesPane *>(m_shadesPane)
+        ->setPick([this](const ColorModel &c) {
+          if (!(m_color == c)) {
+            m_color = c;
+            updateControls();
+          }
+          if (m_signalEnabled) emit colorChanged(m_color, false);
+          if (m_historyGrid)
+            static_cast<ColorHistoryGrid *>(m_historyGrid)->push(m_color);
+        });
+
     m_featureStack = new QStackedWidget(this);
     m_featureStack->addWidget(m_slidersContainer);
     m_featureStack->addWidget(collectorFrame);
     m_featureStack->addWidget(historyFrame);
     m_featureStack->addWidget(harmonyFrame);
+    m_featureStack->addWidget(shadesFrame);
     m_featureStack->setCurrentIndex(0);
     auto uncheckBtn = [](QToolButton *btn) {
       if (!btn || !btn->isChecked()) return;
@@ -3120,40 +3520,31 @@ PlainColorPage::PlainColorPage(QWidget *parent)
       btn->setChecked(false);
       btn->blockSignals(blocked);
     };
-    auto showFeaturePage = [this]() {
-      if (!m_featureStack) return;
-      if (m_harmonyBtn && m_harmonyBtn->isChecked())
-        m_featureStack->setCurrentIndex(3);
-      else if (m_historyBtn && m_historyBtn->isChecked())
-        m_featureStack->setCurrentIndex(2);
-      else if (m_collectorBtn && m_collectorBtn->isChecked())
-        m_featureStack->setCurrentIndex(1);
-      else
-        m_featureStack->setCurrentIndex(0);
+    auto uncheckOthers = [this, uncheckBtn](QToolButton *keep) {
+      if (keep != m_collectorBtn) uncheckBtn(m_collectorBtn);
+      if (keep != m_historyBtn) uncheckBtn(m_historyBtn);
+      if (keep != m_harmonyBtn) uncheckBtn(m_harmonyBtn);
+      if (keep != m_shadesBtn) uncheckBtn(m_shadesBtn);
     };
     connect(m_collectorBtn, &QToolButton::toggled, this,
-            [this, uncheckBtn, showFeaturePage](bool on) {
-              if (on) {
-                uncheckBtn(m_historyBtn);
-                uncheckBtn(m_harmonyBtn);
-              }
-              showFeaturePage();
+            [this, uncheckOthers](bool on) {
+              if (on) uncheckOthers(m_collectorBtn);
+              syncFeaturePage();
             });
     connect(m_historyBtn, &QToolButton::toggled, this,
-            [this, uncheckBtn, showFeaturePage](bool on) {
-              if (on) {
-                uncheckBtn(m_collectorBtn);
-                uncheckBtn(m_harmonyBtn);
-              }
-              showFeaturePage();
+            [this, uncheckOthers](bool on) {
+              if (on) uncheckOthers(m_historyBtn);
+              syncFeaturePage();
             });
     connect(m_harmonyBtn, &QToolButton::toggled, this,
-            [this, uncheckBtn, showFeaturePage](bool on) {
-              if (on) {
-                uncheckBtn(m_collectorBtn);
-                uncheckBtn(m_historyBtn);
-              }
-              showFeaturePage();
+            [this, uncheckOthers](bool on) {
+              if (on) uncheckOthers(m_harmonyBtn);
+              syncFeaturePage();
+            });
+    connect(m_shadesBtn, &QToolButton::toggled, this,
+            [this, uncheckOthers](bool on) {
+              if (on) uncheckOthers(m_shadesBtn);
+              syncFeaturePage();
             });
 
     QWidget *featureHost = new QWidget(this);
@@ -3278,6 +3669,7 @@ PlainColorPage::PlainColorPage(QWidget *parent)
   if (m_collectorGrid) enableCtx(m_collectorGrid);
   if (m_historyGrid) enableCtx(m_historyGrid);
   if (m_harmonyPane) enableCtx(m_harmonyPane);
+  if (m_shadesPane) enableCtx(m_shadesPane);
   enableCtx(m_hsvFrame);
   enableCtx(m_alphaFrame);
   enableCtx(m_rgbFrame);
@@ -3347,6 +3739,24 @@ void PlainColorPage::updateControls() {
     static_cast<ColorVariationStrip *>(m_variationStrip)->setFrom(m_color);
   if (m_harmonyPane)
     static_cast<ColorHarmonyPane *>(m_harmonyPane)->setFrom(m_color);
+  if (m_shadesPane)
+    static_cast<ColorShadesPane *>(m_shadesPane)->setFrom(m_color);
+}
+
+//-----------------------------------------------------------------------------
+
+void PlainColorPage::syncFeaturePage() {
+  if (!m_featureStack) return;
+  if (m_shadesBtn && m_shadesBtn->isChecked())
+    m_featureStack->setCurrentIndex(4);
+  else if (m_harmonyBtn && m_harmonyBtn->isChecked())
+    m_featureStack->setCurrentIndex(3);
+  else if (m_historyBtn && m_historyBtn->isChecked())
+    m_featureStack->setCurrentIndex(2);
+  else if (m_collectorBtn && m_collectorBtn->isChecked())
+    m_featureStack->setCurrentIndex(1);
+  else
+    m_featureStack->setCurrentIndex(0);
 }
 
 //-----------------------------------------------------------------------------
@@ -3517,6 +3927,8 @@ void PlainColorPage::updatePickerChrome() {
       showFeatureBar && StyleEditorShowHistoryButton != 0;
   const bool showHarmonyBtn =
       showFeatureBar && StyleEditorShowHarmonyButton != 0;
+  const bool showShadesBtn =
+      showFeatureBar && StyleEditorShowShadesButton != 0;
   auto uncheckFeature = [](QToolButton *btn) {
     if (!btn || !btn->isChecked()) return;
     bool blocked = btn->blockSignals(true);
@@ -3535,22 +3947,18 @@ void PlainColorPage::updatePickerChrome() {
     m_harmonyBtn->setVisible(showHarmonyBtn);
     if (!showHarmonyBtn) uncheckFeature(m_harmonyBtn);
   }
+  if (m_shadesBtn) {
+    m_shadesBtn->setVisible(showShadesBtn);
+    if (!showShadesBtn) uncheckFeature(m_shadesBtn);
+  }
   if (!showFeatureBar) {
     uncheckFeature(m_collectorBtn);
     uncheckFeature(m_historyBtn);
     uncheckFeature(m_harmonyBtn);
+    uncheckFeature(m_shadesBtn);
   }
   if (m_featureBar) m_featureBar->setVisible(showFeatureBar);
-  if (m_featureStack) {
-    if (m_harmonyBtn && m_harmonyBtn->isChecked())
-      m_featureStack->setCurrentIndex(3);
-    else if (m_historyBtn && m_historyBtn->isChecked())
-      m_featureStack->setCurrentIndex(2);
-    else if (m_collectorBtn && m_collectorBtn->isChecked())
-      m_featureStack->setCurrentIndex(1);
-    else
-      m_featureStack->setCurrentIndex(0);
-  }
+  syncFeaturePage();
   if (QLayout *lay = m_pickerChrome->layout()) lay->activate();
   m_pickerChrome->updateGeometry();
   m_sectionBar->updateGeometry();
@@ -6118,6 +6526,10 @@ void StyleEditor::fillPickerContextMenu(QMenu *menu) {
   showHarmonyBtn->setCheckable(true);
   showHarmonyBtn->setData(QStringLiteral("chrome:harmony"));
   showHarmonyBtn->setChecked(StyleEditorShowHarmonyButton != 0);
+  QAction *showShadesBtn = featuresMenu->addAction(tr("Show Color Shades"));
+  showShadesBtn->setCheckable(true);
+  showShadesBtn->setData(QStringLiteral("chrome:shades"));
+  showShadesBtn->setChecked(StyleEditorShowShadesButton != 0);
   if (advanced) {
     QAction *showShapeBtn = menu->addAction(tr("Show Chromatic Space Icon"));
     showShapeBtn->setCheckable(true);
@@ -6194,6 +6606,9 @@ void StyleEditor::onPickerContextMenu(const QPoint &globalPos) {
     m_plainColorPage->updatePickerChrome();
   } else if (key == QStringLiteral("chrome:harmony")) {
     StyleEditorShowHarmonyButton = chosen->isChecked() ? 1 : 0;
+    m_plainColorPage->updatePickerChrome();
+  } else if (key == QStringLiteral("chrome:shades")) {
+    StyleEditorShowShadesButton = chosen->isChecked() ? 1 : 0;
     m_plainColorPage->updatePickerChrome();
   }
 }

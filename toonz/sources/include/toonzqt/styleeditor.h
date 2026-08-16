@@ -531,6 +531,8 @@ class PlainColorPage final : public StyleEditorPage {
   QWidget *m_historyGrid       = nullptr;
   QToolButton *m_harmonyBtn    = nullptr;
   QWidget *m_harmonyPane       = nullptr;
+  QToolButton *m_shadesBtn     = nullptr;
+  QWidget *m_shadesPane        = nullptr;
   QToolButton *m_wheelKindBtn;
   QToolButton *m_rectKindBtn;
   QToolButton *m_advancedModeBtn;
@@ -545,6 +547,7 @@ class PlainColorPage final : public StyleEditorPage {
   QWidget *m_variationStrip       = nullptr;
   int m_visibleParts;
   void updateControls();
+  void syncFeaturePage();
 
   // QGridLayout *m_mainLayout;
   QFrame *m_slidersContainer;
