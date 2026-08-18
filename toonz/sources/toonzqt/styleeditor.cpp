@@ -5,6 +5,7 @@
 // TnzQt includes
 #include "toonzqt/gutil.h"
 #include "toonzqt/filefield.h"
+#include "toonzqt/menubarcommand.h"
 #include "historytypes.h"
 #include "toonzqt/lutcalibrator.h"
 
@@ -44,7 +45,10 @@
 #include <QGridLayout>
 #include <QPainter>
 #include <QPen>
+#include <QImage>
+#include <QPixmap>
 #include <QButtonGroup>
+#include <QAbstractButton>
 #include <QMouseEvent>
 #include <QLabel>
 #include <QCheckBox>
@@ -68,6 +72,10 @@
 #include <QResizeEvent>
 #include <QShowEvent>
 #include <QContextMenuEvent>
+#include <QWheelEvent>
+#include <QKeyEvent>
+#include <QKeySequence>
+#include <QFocusEvent>
 #include <QFontMetrics>
 #include <functional>
 
@@ -92,7 +100,7 @@ TEnv::IntVar StyleEditorShowSectionToggles("StyleEditorShowSectionToggles", 1);
 TEnv::IntVar StyleEditorShowPickerKindButtons(
     "StyleEditorShowPickerKindButtons", 1);
 TEnv::IntVar StyleEditorShowVarButton("StyleEditorShowVarButton", 1);
-TEnv::IntVar StyleEditorShowFeatureBar("StyleEditorShowFeatureBar", 1);
+TEnv::IntVar StyleEditorShowColorFeaturesBar("StyleEditorShowColorFeaturesBar", 1);
 TEnv::IntVar StyleEditorShowCollectorButton("StyleEditorShowCollectorButton",
                                             1);
 TEnv::IntVar StyleEditorShowHistoryButton("StyleEditorShowHistoryButton", 1);
@@ -101,6 +109,9 @@ TEnv::StringVar StyleEditorColorHistory("StyleEditorColorHistory", "");
 TEnv::IntVar StyleEditorShowHarmonyButton("StyleEditorShowHarmonyButton", 1);
 TEnv::IntVar StyleEditorHarmonyCut("StyleEditorHarmonyCut", 0);
 TEnv::IntVar StyleEditorShowShadesButton("StyleEditorShowShadesButton", 1);
+TEnv::IntVar StyleEditorShowMixerButton("StyleEditorShowMixerButton", 1);
+TEnv::IntVar StyleEditorMixerPaintMix("StyleEditorMixerPaintMix", 1);
+TEnv::IntVar StyleEditorMixerBg("StyleEditorMixerBg", 0);
 TEnv::StringVar StyleEditorColorRampA("StyleEditorColorRampA", "");
 TEnv::StringVar StyleEditorColorRampB("StyleEditorColorRampB", "");
 
@@ -134,6 +145,19 @@ HarmonyCut normalizedHarmonyCut(int id) {
       id == HarmonyTetrad)
     return static_cast<HarmonyCut>(id);
   return HarmonyNone;
+}
+
+enum MixerBlend {
+  MixerRgb     = 0,
+  MixerPigment = 1,
+  MixerFinger  = 2,
+  MixerSoft    = 3
+};
+
+MixerBlend normalizedMixerBlend(int id) {
+  if (id == MixerRgb || id == MixerFinger || id == MixerSoft)
+    return static_cast<MixerBlend>(id);
+  return MixerPigment;
 }
 
 int wrapHue(int h) {
@@ -1117,9 +1141,9 @@ void HexagonalColorWheel::drawSatValueTriangle() {
         }
       }
     }
-    glEnd();
+  glEnd();
     return;
-  }
+}
 
   QColor hueCol = QColor().fromHsv(m_color.getValue(eHue), 255, 255);
   glBegin(GL_TRIANGLES);
@@ -1187,7 +1211,7 @@ void HexagonalColorWheel::paintGL() {
     if (m_svShape == AdvancedSvShape::Square)
       drawSatValueSquare();
     else
-      drawSatValueTriangle();
+    drawSatValueTriangle();
   } else {
     drawClassicHexWheel(v);
     drawSatValueTriangle();
@@ -1321,12 +1345,12 @@ void HexagonalColorWheel::drawHueRingBaton(int hue, float innerDist,
   float cx        = center.x();
   float cy        = center.y();
   auto wedge      = [&](float inR, float outR) {
-    glBegin(GL_LINE_LOOP);
+  glBegin(GL_LINE_LOOP);
     glVertex2f(cx + inR * cosf(r0), cy - inR * sinf(r0));
     glVertex2f(cx + outR * cosf(r0), cy - outR * sinf(r0));
     glVertex2f(cx + outR * cosf(r1), cy - outR * sinf(r1));
     glVertex2f(cx + inR * cosf(r1), cy - inR * sinf(r1));
-    glEnd();
+  glEnd();
   };
   const float pad = 1.2f * (float)getDevPixRatio();
   glColor3f(0.1f, 0.1f, 0.1f);
@@ -1362,7 +1386,7 @@ void HexagonalColorWheel::drawCurrentColorMark() {
           ? svSquareMarkerPos((float)m_color.getValue(eSaturation),
                               (float)m_color.getValue(eValue))
           : svTriangleMarkerPos((float)m_color.getValue(eSaturation),
-                                (float)m_color.getValue(eValue));
+                          (float)m_color.getValue(eValue));
   glPushMatrix();
   glTranslatef(0.0f, 0.0f, 0.1f);
   drawColorCursor((float)marker.x(), (float)marker.y());
@@ -1418,7 +1442,7 @@ bool HexagonalColorWheel::isInCircularHueRing(const QPoint &pos) const {
 
 bool HexagonalColorWheel::isInHueRing(const QPoint &pos) const {
   if (isInSvField(pos)) return false;
-  return isInCircularHueRing(pos);
+    return isInCircularHueRing(pos);
 }
 
 //-----------------------------------------------------------------------------
@@ -1506,7 +1530,7 @@ void HexagonalColorWheel::clickHueRing(const QPoint &pos) {
   QPointF center = m_circleCenter + m_wheelPosition;
   QPointF d      = QPointF(pos) - center;
   float theta    = atan2f(-d.y(), d.x()) * 180.0f / 3.1415f;
-  if (theta < 0.0f) theta += 360.0f;
+    if (theta < 0.0f) theta += 360.0f;
   int hue = (int)(theta + 0.5f);
   if (hue > 359) hue = 359;
 
@@ -3084,6 +3108,941 @@ public:
   }
 };
 
+class ColorMixerPane final : public QWidget {
+  static const int kRadius = 14;
+  QImage m_img;
+  QPixmap m_check;
+  QPoint m_last;
+  QPoint m_pos;
+  QPointF m_view;
+  double m_zoom                 = 1.0;
+  Qt::MouseButton m_mouseButton = Qt::NoButton;
+  bool m_down                   = false;
+  bool m_moved                  = false;
+  bool m_paint                  = false;
+  MixerBlend m_blend            = MixerPigment;
+  int m_bgKind                  = 0;
+  bool m_space                  = false;
+  int m_panKey                  = 0;
+  static const int kHistMax     = 24;
+  QList<QImage> m_undo;
+  QList<QImage> m_redo;
+  QImage m_strokeBefore;
+  bool m_histOpen               = false;
+  QWidget *m_bar                = nullptr;
+  QToolButton *m_undoBtn        = nullptr;
+  QToolButton *m_redoBtn        = nullptr;
+  QToolButton *m_mixModeBtn     = nullptr;
+  std::function<ColorModel()> m_current;
+  std::function<void(const ColorModel &)> m_pick;
+
+  QPoint toImg(const QPoint &w) const {
+    const double z = m_zoom < 0.01 ? 0.01 : m_zoom;
+    return QPoint((int)std::floor((w.x() - m_view.x()) / z),
+                  (int)std::floor((w.y() - m_view.y()) / z));
+  }
+
+  void resetView() {
+    m_view = QPointF();
+    m_zoom = 1.0;
+  }
+
+  void panQt(const QPoint &delta) {
+    if (delta.isNull()) return;
+    m_view += QPointF(delta);
+    update();
+  }
+
+  void zoomQt(const QPoint &center, double factor) {
+    if (factor == 1.0) return;
+    const double old = m_zoom;
+    m_zoom           = qBound(0.05, m_zoom * factor, 32.0);
+    if (old > 1e-6)
+      m_view = QPointF(center) - (QPointF(center) - m_view) * (m_zoom / old);
+    update();
+  }
+
+  void rebuildCheck(const QSize &s) {
+    if (s.width() < 1 || s.height() < 1 || m_check.size() == s) return;
+    m_check = QPixmap(s);
+    QPainter cp(&m_check);
+    const QColor ca = palette().color(QPalette::Mid);
+    const QColor cb = palette().color(QPalette::Window);
+    const int t     = 8;
+    for (int y = 0; y < s.height(); y += t)
+      for (int x = 0; x < s.width(); x += t)
+        cp.fillRect(x, y, t, t, ((x / t + y / t) & 1) ? ca : cb);
+  }
+
+  void ensureImage() {
+    const QSize s = size();
+    rebuildCheck(s);
+    if (s.width() < 8 || s.height() < 8) return;
+    if (m_img.isNull()) {
+      m_img = QImage(s, QImage::Format_ARGB32);
+      m_img.fill(qRgba(0, 0, 0, 0));
+      return;
+    }
+    if (m_img.width() >= s.width() && m_img.height() >= s.height()) return;
+    const QSize next(std::max(m_img.width(), s.width()),
+                     std::max(m_img.height(), s.height()));
+    QImage grown(next, QImage::Format_ARGB32);
+    grown.fill(qRgba(0, 0, 0, 0));
+    QPainter p(&grown);
+    p.setCompositionMode(QPainter::CompositionMode_Source);
+    p.drawImage(0, 0, m_img);
+    m_img = grown;
+  }
+
+  void syncHistBtns() {
+    if (m_undoBtn) m_undoBtn->setEnabled(!m_undo.isEmpty());
+    if (m_redoBtn) m_redoBtn->setEnabled(!m_redo.isEmpty());
+  }
+
+  void beginStrokeHist() {
+    ensureImage();
+    m_strokeBefore = m_img.copy();
+    m_histOpen     = true;
+  }
+
+  void commitStrokeHist() {
+    if (!m_histOpen) return;
+    m_histOpen = false;
+    if (!m_moved && !m_paint) {
+      m_strokeBefore = QImage();
+      return;
+    }
+    m_undo.append(m_strokeBefore);
+    m_strokeBefore = QImage();
+    while (m_undo.size() > kHistMax) m_undo.removeFirst();
+    m_redo.clear();
+    syncHistBtns();
+  }
+
+  void pushHist() {
+    if (m_img.isNull()) return;
+    m_undo.append(m_img.copy());
+    while (m_undo.size() > kHistMax) m_undo.removeFirst();
+    m_redo.clear();
+    syncHistBtns();
+  }
+
+  void undoHist() {
+    if (m_undo.isEmpty()) return;
+    m_redo.append(m_img);
+    m_img = m_undo.takeLast();
+    update();
+    syncHistBtns();
+  }
+
+  void redoHist() {
+    if (m_redo.isEmpty()) return;
+    m_undo.append(m_img);
+    m_img = m_redo.takeLast();
+    update();
+    syncHistBtns();
+  }
+
+  struct Ryb {
+    float r, y, b;
+  };
+
+  static Ryb toRyb(int r, int g, int b) {
+    float rf = r / 255.f, gf = g / 255.f, bf = b / 255.f;
+    const float w = std::min(rf, std::min(gf, bf));
+    rf -= w;
+    gf -= w;
+    bf -= w;
+    const float mg = std::max(rf, std::max(gf, bf));
+    float y        = std::min(rf, gf);
+    rf -= y;
+    gf -= y;
+    if (bf > 0.f && gf > 0.f) {
+      bf *= 0.5f;
+      gf *= 0.5f;
+    }
+    y += gf;
+    bf += gf;
+    const float my = std::max(rf, std::max(y, bf));
+    if (my > 1e-6f && mg > 0.f) {
+      const float n = mg / my;
+      rf *= n;
+      y *= n;
+      bf *= n;
+    }
+    Ryb o;
+    o.r = rf + w;
+    o.y = y + w;
+    o.b = bf + w;
+    return o;
+  }
+
+  static void fromRyb(const Ryb &o, int &r, int &g, int &b) {
+    float rf = o.r, y = o.y, bf = o.b;
+    const float w = std::min(rf, std::min(y, bf));
+    rf -= w;
+    y -= w;
+    bf -= w;
+    const float my = std::max(rf, std::max(y, bf));
+    float gf       = std::min(y, bf);
+    y -= gf;
+    bf -= gf;
+    if (bf > 0.f && gf > 0.f) {
+      bf *= 2.f;
+      gf *= 2.f;
+    }
+    rf += y;
+    gf += y;
+    const float mg = std::max(rf, std::max(gf, bf));
+    if (mg > 1e-6f && my > 0.f) {
+      const float n = my / mg;
+      rf *= n;
+      gf *= n;
+      bf *= n;
+    }
+    r = qBound(0, (int)std::lround((rf + w) * 255.f), 255);
+    g = qBound(0, (int)std::lround((gf + w) * 255.f), 255);
+    b = qBound(0, (int)std::lround((bf + w) * 255.f), 255);
+  }
+
+  static void mixRyb(int r1, int g1, int b1, int r2, int g2, int b2, int t,
+                     int &ro, int &go, int &bo) {
+    t = qBound(0, t, 256);
+    if (t <= 0) {
+      ro = r1;
+      go = g1;
+      bo = b1;
+      return;
+    }
+    if (t >= 256) {
+      ro = r2;
+      go = g2;
+      bo = b2;
+      return;
+    }
+    const Ryb a   = toRyb(r1, g1, b1);
+    const Ryb b   = toRyb(r2, g2, b2);
+    const float u = t / 256.f;
+    Ryb o;
+    o.r = a.r + (b.r - a.r) * u;
+    o.y = a.y + (b.y - a.y) * u;
+    o.b = a.b + (b.b - a.b) * u;
+    fromRyb(o, ro, go, bo);
+  }
+
+  struct OkLab {
+    float L, a, b;
+  };
+
+  static float srgbToLin(float c) {
+    c = qBound(0.f, c, 1.f);
+    return c <= 0.04045f ? c / 12.92f
+                         : std::pow((c + 0.055f) / 1.055f, 2.4f);
+  }
+
+  static float linToSrgb(float c) {
+    c = qBound(0.f, c, 1.f);
+    return c <= 0.0031308f ? 12.92f * c
+                           : 1.055f * std::pow(c, 1.f / 2.4f) - 0.055f;
+  }
+
+  static OkLab rgbToOklab(int r, int g, int b) {
+    const float rl = srgbToLin(r / 255.f);
+    const float gl = srgbToLin(g / 255.f);
+    const float bl = srgbToLin(b / 255.f);
+    const float l =
+        std::cbrt(0.4122214708f * rl + 0.5363325363f * gl + 0.0514459929f * bl);
+    const float m =
+        std::cbrt(0.2119034982f * rl + 0.6806995451f * gl + 0.1073969566f * bl);
+    const float s =
+        std::cbrt(0.0883024619f * rl + 0.2817188376f * gl + 0.6299787005f * bl);
+    OkLab o;
+    o.L = 0.2104542553f * l + 0.7936177850f * m - 0.0040720468f * s;
+    o.a = 1.9779984951f * l - 2.4285922050f * m + 0.4505937099f * s;
+    o.b = 0.0259040371f * l + 0.7827717662f * m - 0.8086757660f * s;
+    return o;
+  }
+
+  static void oklabToLinear(float L, float a, float b, float &r, float &g,
+                            float &bl) {
+    const float l_ = L + 0.3963377774f * a + 0.2158037573f * b;
+    const float m_ = L - 0.1055613458f * a - 0.0638541728f * b;
+    const float s_ = L - 0.0894841775f * a - 1.2914855480f * b;
+    const float l  = l_ * l_ * l_;
+    const float m  = m_ * m_ * m_;
+    const float s  = s_ * s_ * s_;
+    r              = +4.0767416621f * l - 3.3077115913f * m + 0.2309699292f * s;
+    g              = -1.2684380046f * l + 2.6097574011f * m - 0.3413193965f * s;
+    bl             = -0.0041960863f * l - 0.7034186147f * m + 1.7076147010f * s;
+  }
+
+  static bool linInGamut(float r, float g, float b) {
+    return r >= 0.f && r <= 1.f && g >= 0.f && g <= 1.f && b >= 0.f && b <= 1.f;
+  }
+
+  static void oklabToRgb(const OkLab &o, int &r, int &g, int &b) {
+    float rl, gl, bl;
+    oklabToLinear(o.L, o.a, o.b, rl, gl, bl);
+    if (!linInGamut(rl, gl, bl)) {
+      float lo = 0.f, hi = 1.f;
+      for (int i = 0; i < 10; ++i) {
+        const float k = (lo + hi) * 0.5f;
+        oklabToLinear(o.L, o.a * k, o.b * k, rl, gl, bl);
+        if (linInGamut(rl, gl, bl))
+          lo = k;
+        else
+          hi = k;
+      }
+      oklabToLinear(o.L, o.a * lo, o.b * lo, rl, gl, bl);
+    }
+    r = qBound(0, (int)std::lround(linToSrgb(rl) * 255.f), 255);
+    g = qBound(0, (int)std::lround(linToSrgb(gl) * 255.f), 255);
+    b = qBound(0, (int)std::lround(linToSrgb(bl) * 255.f), 255);
+  }
+
+  static float wrapPi(float d) {
+    const float pi = 3.14159265f;
+    while (d > pi) d -= 2.f * pi;
+    while (d < -pi) d += 2.f * pi;
+    return d;
+  }
+
+  static void mixSoft(int r1, int g1, int b1, int r2, int g2, int b2, int t,
+                       int &ro, int &go, int &bo) {
+    t = qBound(0, t, 256);
+    if (t <= 0) {
+      ro = r1;
+      go = g1;
+      bo = b1;
+      return;
+    }
+    if (t >= 256) {
+      ro = r2;
+      go = g2;
+      bo = b2;
+      return;
+    }
+    const OkLab A = rgbToOklab(r1, g1, b1);
+    const OkLab B = rgbToOklab(r2, g2, b2);
+    const float u = t / 256.f;
+    const float C1  = std::hypot(A.a, A.b);
+    const float C2  = std::hypot(B.a, B.b);
+    const float h1  = std::atan2(A.b, A.a);
+    const float h2  = std::atan2(B.b, B.a);
+    const float dH  = wrapPi(h2 - h1);
+    const float sep = std::fabs(dH) / 3.14159265f;
+    float h;
+    if ((A.b * B.b < 0.f) && sep > 0.35f) {
+      const float greenH = 2.53f;
+      if (u < 0.5f)
+        h = h1 + wrapPi(greenH - h1) * (u * 2.f);
+      else
+        h = greenH + wrapPi(h2 - greenH) * ((u - 0.5f) * 2.f);
+    } else {
+      h = h1 + dH * u;
+    }
+    const float C = C1 + (C2 - C1) * u;
+    OkLab o;
+    o.L = A.L + (B.L - A.L) * u;
+    o.a = C * std::cos(h);
+    o.b = C * std::sin(h);
+    oklabToRgb(o, ro, go, bo);
+  }
+
+  static int mixChan(int from, int to, int t) {
+    return from + (to - from) * t / 256;
+  }
+
+  static void mixRgb(int r1, int g1, int b1, int r2, int g2, int b2, int t,
+                     int &ro, int &go, int &bo) {
+    t  = qBound(0, t, 256);
+    ro = mixChan(r1, r2, t);
+    go = mixChan(g1, g2, t);
+    bo = mixChan(b1, b2, t);
+  }
+
+  void mixColors(int r1, int g1, int b1, int r2, int g2, int b2, int t, int &ro,
+                 int &go, int &bo) const {
+    if (m_blend == MixerPigment)
+      mixRyb(r1, g1, b1, r2, g2, b2, t, ro, go, bo);
+    else if (m_blend == MixerSoft)
+      mixSoft(r1, g1, b1, r2, g2, b2, t, ro, go, bo);
+    else
+      mixRgb(r1, g1, b1, r2, g2, b2, t, ro, go, bo);
+  }
+
+  static int cover255(int dx, int dy, int radius) {
+    const int r2 = radius * radius;
+    const int d2 = dx * dx + dy * dy;
+    if (d2 >= r2) return 0;
+    const int fo = 256 - d2 * 256 / r2;
+    return std::min(255, fo * fo / 256);
+  }
+
+  void stampPaint(const QPoint &c, QRgb color, int radius) {
+    if (m_img.isNull()) return;
+    const QRect box = m_img.rect().intersected(
+        QRect(c.x() - radius, c.y() - radius, radius * 2 + 1, radius * 2 + 1));
+    if (!box.isValid()) return;
+    const int cr = qRed(color);
+    const int cg = qGreen(color);
+    const int cb = qBlue(color);
+    for (int y = box.top(); y <= box.bottom(); ++y) {
+      QRgb *line   = reinterpret_cast<QRgb *>(m_img.scanLine(y));
+      const int dy = y - c.y();
+      for (int x = box.left(); x <= box.right(); ++x) {
+        const int cv = cover255(x - c.x(), dy, radius);
+        if (cv < 8) continue;
+        const QRgb dst = line[x];
+        const int da   = qAlpha(dst);
+        if (da < 8) {
+          line[x] = qRgba(cr, cg, cb, cv);
+          continue;
+        }
+        const int na = cv > 200 ? 255 : std::min(255, da + cv * (255 - da) / 255);
+        int rr, gg, bb;
+        mixColors(qRed(dst), qGreen(dst), qBlue(dst), cr, cg, cb, cv, rr, gg,
+                  bb);
+        line[x] = qRgba(rr, gg, bb, na);
+      }
+    }
+  }
+
+  void smudgeTo(const QPoint &from, const QPoint &to) {
+    if (m_img.isNull() || from == to) return;
+    const int r  = kRadius;
+    const QRect rf(from.x() - r, from.y() - r, r * 2 + 1, r * 2 + 1);
+    const QRect rt(to.x() - r, to.y() - r, r * 2 + 1, r * 2 + 1);
+    const QRect box = rf.united(rt).intersected(m_img.rect());
+    if (!box.isValid()) return;
+    const QImage snap = m_img.copy(box);
+
+    double acc0 = 0, acc1 = 0, acc2 = 0, wsum = 0;
+    double wL = 0, wA = 0, wB = 0, wW = 0;
+    double cL = 0, cA = 0, cB = 0, cW = 0;
+    const bool finger         = (m_blend == MixerFinger);
+    const QRect fromBox = rf.intersected(m_img.rect());
+    if (!finger) {
+      for (int y = fromBox.top(); y <= fromBox.bottom(); ++y) {
+        const int dy   = y - from.y();
+        const int srcY = y - box.y();
+        const QRgb *srcLine =
+            reinterpret_cast<const QRgb *>(snap.constScanLine(srcY));
+        for (int x = fromBox.left(); x <= fromBox.right(); ++x) {
+          const int cv = cover255(x - from.x(), dy, r);
+          if (cv < 8) continue;
+          const QRgb s  = srcLine[x - box.x()];
+          const int sa  = qAlpha(s);
+          if (sa < 8) continue;
+          const double w = (double)cv * sa;
+          if (m_blend == MixerPigment) {
+            const Ryb o = toRyb(qRed(s), qGreen(s), qBlue(s));
+            acc0 += o.r * w;
+            acc1 += o.y * w;
+            acc2 += o.b * w;
+          } else if (m_blend == MixerSoft) {
+            const OkLab o = rgbToOklab(qRed(s), qGreen(s), qBlue(s));
+            if (o.b >= 0.f) {
+              wL += o.L * w;
+              wA += o.a * w;
+              wB += o.b * w;
+              wW += w;
+            } else {
+              cL += o.L * w;
+              cA += o.a * w;
+              cB += o.b * w;
+              cW += w;
+            }
+          } else {
+            acc0 += qRed(s) * w;
+            acc1 += qGreen(s) * w;
+            acc2 += qBlue(s) * w;
+          }
+          wsum += w;
+        }
+      }
+    }
+    int pickR = 0, pickG = 0, pickB = 0;
+    const bool havePick = !finger && wsum > 0;
+    if (havePick) {
+      if (m_blend == MixerPigment) {
+        Ryb p;
+        p.r = (float)(acc0 / wsum);
+        p.y = (float)(acc1 / wsum);
+        p.b = (float)(acc2 / wsum);
+        fromRyb(p, pickR, pickG, pickB);
+      } else if (m_blend == MixerSoft) {
+        if (wW > 0 && cW > 0) {
+          OkLab warm, cool;
+          warm.L = (float)(wL / wW);
+          warm.a = (float)(wA / wW);
+          warm.b = (float)(wB / wW);
+          cool.L = (float)(cL / cW);
+          cool.a = (float)(cA / cW);
+          cool.b = (float)(cB / cW);
+          int wr, wg, wb, cr, cg, cb;
+          oklabToRgb(warm, wr, wg, wb);
+          oklabToRgb(cool, cr, cg, cb);
+          mixSoft(wr, wg, wb, cr, cg, cb,
+                   (int)(256.0 * cW / (wW + cW)), pickR, pickG, pickB);
+        } else {
+          OkLab p;
+          if (wW > 0) {
+            p.L = (float)(wL / wW);
+            p.a = (float)(wA / wW);
+            p.b = (float)(wB / wW);
+          } else {
+            p.L = (float)(cL / cW);
+            p.a = (float)(cA / cW);
+            p.b = (float)(cB / cW);
+          }
+          oklabToRgb(p, pickR, pickG, pickB);
+        }
+      } else {
+        pickR = (int)(acc0 / wsum);
+        pickG = (int)(acc1 / wsum);
+        pickB = (int)(acc2 / wsum);
+      }
+    }
+
+    const QRect write = rt.intersected(m_img.rect());
+    for (int y = write.top(); y <= write.bottom(); ++y) {
+      QRgb *line     = reinterpret_cast<QRgb *>(m_img.scanLine(y));
+      const int dy   = y - to.y();
+      const int srcY = from.y() + dy - box.y();
+      if (srcY < 0 || srcY >= snap.height()) continue;
+      const QRgb *srcLine =
+          reinterpret_cast<const QRgb *>(snap.constScanLine(srcY));
+      for (int x = write.left(); x <= write.right(); ++x) {
+        const int dx   = x - to.x();
+        const int mask = cover255(dx, dy, r);
+        if (mask < 8) continue;
+        const int srcX = from.x() + dx - box.x();
+        if (srcX < 0 || srcX >= snap.width()) continue;
+        const QRgb src = srcLine[srcX];
+        const int sa   = qAlpha(src);
+        const QRgb dst = line[x];
+        const int da   = qAlpha(dst);
+        if (finger) {
+          if (sa < 8) continue;
+          if (da < 8) {
+            const int na = sa * mask / 255;
+            if (na < 8) continue;
+            line[x] = qRgba(qRed(src), qGreen(src), qBlue(src), na);
+            continue;
+          }
+          const int t = mask;
+          line[x]     = qRgba(mixChan(qRed(dst), qRed(src), t),
+                              mixChan(qGreen(dst), qGreen(src), t),
+                              mixChan(qBlue(dst), qBlue(src), t),
+                              da > 200 ? 255
+                                       : std::min(255, da + mask * (255 - da) / 255));
+          continue;
+        }
+        if (da < 8) {
+          if (sa < 8) continue;
+          const int na = sa * mask / 255;
+          if (na < 8) continue;
+          int rr = qRed(src), gg = qGreen(src), bb = qBlue(src);
+          if (havePick) {
+            const int t = mask * 90 / 255;
+            mixColors(rr, gg, bb, pickR, pickG, pickB, t, rr, gg, bb);
+          }
+          line[x] = qRgba(rr, gg, bb, na);
+          continue;
+        }
+        const int smearT = mask * 72 / 255;
+        const int mixT   = mask * 96 / 255;
+        int rr = qRed(dst), gg = qGreen(dst), bb = qBlue(dst);
+        if (sa >= 8)
+          mixColors(rr, gg, bb, qRed(src), qGreen(src), qBlue(src), smearT, rr,
+                    gg, bb);
+        if (havePick)
+          mixColors(rr, gg, bb, pickR, pickG, pickB, mixT, rr, gg, bb);
+        const int na =
+            da > 200 ? 255 : std::min(255, da + mask * (255 - da) / 255);
+        line[x] = qRgba(rr, gg, bb, na);
+      }
+    }
+  }
+
+  void stroke(const QPoint &a, const QPoint &b) {
+    ensureImage();
+    const int steps = std::max(1, (a - b).manhattanLength());
+    if (m_paint) {
+      if (!m_current) return;
+      const TPixel32 pix = m_current().getTPixel();
+      const QRgb paint   = qRgba(pix.r, pix.g, pix.b, 255);
+      for (int i = 0; i <= steps; ++i) {
+        const QPoint p(a.x() + (b.x() - a.x()) * i / steps,
+                       a.y() + (b.y() - a.y()) * i / steps);
+        stampPaint(p, paint, kRadius);
+      }
+      return;
+    }
+    QPoint prev = a;
+    for (int i = 1; i <= steps; ++i) {
+      const QPoint p(a.x() + (b.x() - a.x()) * i / steps,
+                     a.y() + (b.y() - a.y()) * i / steps);
+      smudgeTo(prev, p);
+      prev = p;
+    }
+  }
+
+  void pickAt(const QPoint &p) {
+    ensureImage();
+    if (!m_pick || !m_img.rect().contains(p)) return;
+    const QRgb pix = m_img.pixel(p);
+    if (qAlpha(pix) < 16) return;
+    ColorModel c;
+    c.setTPixel(TPixel32((UCHAR)qRed(pix), (UCHAR)qGreen(pix),
+                         (UCHAR)qBlue(pix), (UCHAR)qAlpha(pix)));
+    m_pick(c);
+  }
+
+  // Viewer pan (T_HandView / bare Space), taken before the app shortcut.
+  static bool isViewerPanShortcut(const QKeyEvent *ke) {
+    const std::string keyStr =
+        QKeySequence(ke->key() + ke->modifiers()).toString().toStdString();
+    QAction *action = CommandManager::instance()->getActionFromShortcut(keyStr);
+    if (action)
+      return CommandManager::instance()->getIdFromAction(action) == "T_HandView";
+    return ke->key() == Qt::Key_Space && ke->modifiers() == Qt::NoModifier;
+  }
+
+  void beginPanHold(int key) {
+    m_space  = true;
+    m_panKey = key;
+    setCursor(Qt::OpenHandCursor);
+  }
+
+  void endPanHold() {
+    m_space  = false;
+    m_panKey = 0;
+    if (m_mouseButton != Qt::MiddleButton &&
+        !(m_mouseButton == Qt::LeftButton && m_down))
+      setCursor(Qt::ArrowCursor);
+  }
+
+protected:
+  bool event(QEvent *e) override {
+    if (e->type() == QEvent::ShortcutOverride) {
+      QKeyEvent *ke = static_cast<QKeyEvent *>(e);
+      if (isViewerPanShortcut(ke)) {
+        e->accept();
+        return true;
+      }
+    }
+    return QWidget::event(e);
+  }
+
+  void enterEvent(QEvent *e) override {
+    setFocus(Qt::OtherFocusReason);
+    QWidget::enterEvent(e);
+  }
+
+  void focusOutEvent(QFocusEvent *e) override {
+    endPanHold();
+    QWidget::focusOutEvent(e);
+  }
+
+  void paintEvent(QPaintEvent *) override {
+    QPainter p(this);
+    if (m_bgKind == 1)
+      p.fillRect(rect(), Qt::black);
+    else if (m_bgKind == 2)
+      p.fillRect(rect(), Qt::white);
+    else if (m_bgKind == 3)
+      p.fillRect(rect(), palette().window());
+    else if (!m_check.isNull())
+      p.drawPixmap(0, 0, m_check);
+    else
+      p.fillRect(rect(), palette().window());
+    if (!m_img.isNull()) {
+      p.save();
+      p.translate(m_view);
+      p.scale(m_zoom, m_zoom);
+      p.drawImage(0, 0, m_img);
+      p.restore();
+    }
+    if (m_bgKind == 3) {
+      p.setPen(palette().color(QPalette::Mid));
+      const int barH = m_bar ? m_bar->height() : 0;
+      p.drawRect(rect().adjusted(0, 0, -1, -1 - barH));
+    }
+  }
+
+  void resizeEvent(QResizeEvent *e) override {
+    QWidget::resizeEvent(e);
+    ensureImage();
+    if (m_bar) {
+      const int h = 16;
+      m_bar->setGeometry(0, height() - h, width(), h);
+    }
+  }
+
+  void mousePressEvent(QMouseEvent *e) override {
+    m_mouseButton = e->button();
+    m_pos         = e->pos();
+    setFocus(Qt::MouseFocusReason);
+    if (m_mouseButton == Qt::MiddleButton ||
+        (m_mouseButton == Qt::LeftButton && m_space)) {
+      setCursor(Qt::ClosedHandCursor);
+      e->accept();
+      return;
+    }
+    if (m_mouseButton != Qt::LeftButton) {
+      QWidget::mousePressEvent(e);
+      return;
+    }
+    m_down  = true;
+    m_moved = false;
+    m_paint = (e->modifiers() & Qt::AltModifier);
+    m_last  = toImg(e->pos());
+    beginStrokeHist();
+    if (m_paint && m_current) {
+      const TPixel32 pix = m_current().getTPixel();
+      stampPaint(m_last, qRgba(pix.r, pix.g, pix.b, 255), kRadius);
+      update();
+    }
+    e->accept();
+  }
+
+  void mouseMoveEvent(QMouseEvent *e) override {
+    const QPoint cur = e->pos();
+    if ((e->buttons() & Qt::MiddleButton) ||
+        m_mouseButton == Qt::MiddleButton ||
+        (m_space && (e->buttons() & Qt::LeftButton))) {
+      panQt(cur - m_pos);
+      m_pos = cur;
+      e->accept();
+      return;
+    }
+    if (!m_down || m_mouseButton != Qt::LeftButton) return;
+    const QPoint p = toImg(cur);
+    if (p == m_last) return;
+    m_moved = true;
+    stroke(m_last, p);
+    m_last = p;
+    update();
+    e->accept();
+  }
+
+  void mouseReleaseEvent(QMouseEvent *e) override {
+    if (m_mouseButton == Qt::MiddleButton ||
+        (e->button() == Qt::LeftButton && m_space)) {
+      m_mouseButton = Qt::NoButton;
+      m_down        = false;
+      setCursor(m_space ? Qt::OpenHandCursor : Qt::ArrowCursor);
+      e->accept();
+      return;
+    }
+    m_mouseButton = Qt::NoButton;
+    if (e->button() != Qt::LeftButton || !m_down) {
+      QWidget::mouseReleaseEvent(e);
+      return;
+    }
+    m_down = false;
+    commitStrokeHist();
+    if (!m_moved && !m_paint) pickAt(toImg(e->pos()));
+    e->accept();
+  }
+
+  void keyPressEvent(QKeyEvent *e) override {
+    if (isViewerPanShortcut(e)) {
+      beginPanHold(e->key());
+      e->accept();
+      return;
+    }
+    const int key = e->key();
+    if (key == '+' || key == Qt::Key_Plus || key == Qt::Key_Equal) {
+      zoomQt(rect().center(), exp(0.001 * 120));
+      e->accept();
+      return;
+    }
+    if (key == '-' || key == Qt::Key_Minus) {
+      zoomQt(rect().center(), exp(0.001 * -120));
+      e->accept();
+      return;
+    }
+    if (key == '0' || key == Qt::Key_0) {
+      resetView();
+      update();
+      e->accept();
+      return;
+    }
+    QWidget::keyPressEvent(e);
+  }
+
+  void keyReleaseEvent(QKeyEvent *e) override {
+    if (m_space && (e->key() == m_panKey || isViewerPanShortcut(e))) {
+      endPanHold();
+      e->accept();
+      return;
+    }
+    QWidget::keyReleaseEvent(e);
+  }
+
+  void wheelEvent(QWheelEvent *e) override {
+    int delta = 0;
+    switch (e->source()) {
+    case Qt::MouseEventNotSynthesized:
+      delta = (e->modifiers() & Qt::AltModifier) ? e->angleDelta().x()
+                                                 : e->angleDelta().y();
+      break;
+    case Qt::MouseEventSynthesizedBySystem:
+      if (!e->pixelDelta().isNull())
+        delta = e->pixelDelta().y();
+      else if (!e->angleDelta().isNull())
+        delta = (e->angleDelta() / 8 / 15).y();
+      break;
+    default:
+      break;
+    }
+    if (delta != 0) {
+      const int d = delta > 0 ? 120 : -120;
+      const QPoint center =
+#if QT_VERSION >= QT_VERSION_CHECK(5, 15, 0)
+          e->position().toPoint();
+#else
+          e->pos();
+#endif
+      zoomQt(center, std::exp(0.001 * d));
+    }
+    e->accept();
+  }
+
+public:
+  explicit ColorMixerPane(QWidget *parent) : QWidget(parent) {
+    setMinimumSize(0, 0);
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    setMouseTracking(false);
+    setFocusPolicy(Qt::StrongFocus);
+    setToolTip(tr(
+        "Click: Apply\nDrag: Mix\nAlt + drag: Paint\nSpace + drag: Pan\nWheel: Zoom"));
+
+    m_bar = new QWidget(this);
+    m_bar->setFixedHeight(16);
+    m_bar->setAutoFillBackground(true);
+    m_bar->setFocusPolicy(Qt::NoFocus);
+    auto *barLay = new QHBoxLayout(m_bar);
+    barLay->setContentsMargins(2, 0, 2, 0);
+    barLay->setSpacing(0);
+
+    auto mkBtn = [this](const char *icon, const QString &tip) {
+      QToolButton *b = new QToolButton(m_bar);
+      b->setAutoRaise(true);
+      b->setFocusPolicy(Qt::NoFocus);
+      b->setFixedSize(16, 16);
+      b->setIconSize(QSize(11, 11));
+      b->setToolButtonStyle(Qt::ToolButtonIconOnly);
+      if (icon) b->setIcon(createQIcon(icon));
+      b->setToolTip(tip);
+      return b;
+    };
+
+    barLay->addStretch(1);
+
+    m_undoBtn = mkBtn("undo", tr("Undo"));
+    m_undoBtn->setEnabled(false);
+    connect(m_undoBtn, &QToolButton::clicked, this, [this]() { undoHist(); });
+    barLay->addWidget(m_undoBtn);
+
+    m_redoBtn = mkBtn("redo", tr("Redo"));
+    m_redoBtn->setEnabled(false);
+    connect(m_redoBtn, &QToolButton::clicked, this, [this]() { redoHist(); });
+    barLay->addWidget(m_redoBtn);
+
+    QToolButton *clearBtn = mkBtn("clear", tr("Clear"));
+    connect(clearBtn, &QToolButton::clicked, this, [this]() {
+      if (m_img.isNull()) return;
+      pushHist();
+      m_img.fill(qRgba(0, 0, 0, 0));
+      resetView();
+      update();
+    });
+    barLay->addWidget(clearBtn);
+
+    m_blend      = normalizedMixerBlend(StyleEditorMixerPaintMix);
+    m_mixModeBtn = mkBtn(0, QString());
+    m_mixModeBtn->setCheckable(true);
+    auto syncMixMode = [this]() {
+      const char *icon = "colorpicker_mixer_pigment";
+      QString tip      = tr("Pigment");
+      if (m_blend == MixerRgb) {
+        icon = "colorpicker_mixer_rgb";
+        tip  = tr("RGB");
+      } else if (m_blend == MixerFinger) {
+        icon = "finger";
+        tip  = tr("Finger");
+      } else if (m_blend == MixerSoft) {
+        icon = "paintbrush";
+        tip  = tr("Soft");
+      }
+      m_mixModeBtn->setIcon(createQIcon(icon));
+      m_mixModeBtn->setToolTip(tip);
+      m_mixModeBtn->setChecked(m_blend == MixerRgb);
+    };
+    syncMixMode();
+    connect(m_mixModeBtn, &QToolButton::clicked, this, [this, syncMixMode]() {
+      if (m_blend == MixerPigment)
+        m_blend = MixerRgb;
+      else if (m_blend == MixerRgb)
+        m_blend = MixerFinger;
+      else if (m_blend == MixerFinger)
+        m_blend = MixerSoft;
+      else
+        m_blend = MixerPigment;
+      StyleEditorMixerPaintMix = (int)m_blend;
+      syncMixMode();
+    });
+    barLay->addWidget(m_mixModeBtn);
+
+    auto *gap = new QWidget(m_bar);
+    gap->setFixedWidth(4);
+    barLay->addWidget(gap);
+
+    m_bgKind               = qBound(0, (int)StyleEditorMixerBg, 3);
+    QToolButton *bgChecker =
+        mkBtn("browser_preview_checkboard", tr("Checkered background"));
+    QToolButton *bgBlack =
+        mkBtn("browser_preview_black", tr("Black background"));
+    QToolButton *bgWhite =
+        mkBtn("browser_preview_white", tr("White background"));
+    QToolButton *bgNone =
+        mkBtn("browser_preview_transparency", tr("Transparent background"));
+    bgChecker->setCheckable(true);
+    bgBlack->setCheckable(true);
+    bgWhite->setCheckable(true);
+    bgNone->setCheckable(true);
+    auto *bgGroup = new QButtonGroup(this);
+    bgGroup->setExclusive(true);
+    bgGroup->addButton(bgChecker, 0);
+    bgGroup->addButton(bgBlack, 1);
+    bgGroup->addButton(bgWhite, 2);
+    bgGroup->addButton(bgNone, 3);
+    if (QAbstractButton *cur = bgGroup->button(m_bgKind)) cur->setChecked(true);
+    auto applyBg = [this](int id) {
+      m_bgKind           = id;
+      StyleEditorMixerBg = id;
+      update();
+    };
+    connect(bgChecker, &QToolButton::clicked, this, [applyBg]() { applyBg(0); });
+    connect(bgBlack, &QToolButton::clicked, this, [applyBg]() { applyBg(1); });
+    connect(bgWhite, &QToolButton::clicked, this, [applyBg]() { applyBg(2); });
+    connect(bgNone, &QToolButton::clicked, this, [applyBg]() { applyBg(3); });
+    barLay->addWidget(bgChecker);
+    barLay->addWidget(bgBlack);
+    barLay->addWidget(bgWhite);
+    barLay->addWidget(bgNone);
+  }
+
+  void setCurrent(std::function<ColorModel()> cb) { m_current = std::move(cb); }
+  void setPick(std::function<void(const ColorModel &)> cb) {
+    m_pick = std::move(cb);
+  }
+};
+
 class SectionToggleBar final : public QWidget {
   static const int kGap     = 1;
   static const int kRowH    = 20;
@@ -3264,12 +4223,12 @@ PlainColorPage::PlainColorPage(QWidget *parent)
     m_channelControls[i] = new ColorChannelControl((ColorChannel)i, this);
     m_channelControls[i]->setColor(m_color);
     connect(m_channelControls[i],
-            SIGNAL(colorChanged(const ColorModel &, bool)), this,
-            SLOT(onControlChanged(const ColorModel &, bool)));
+                       SIGNAL(colorChanged(const ColorModel &, bool)), this,
+                       SLOT(onControlChanged(const ColorModel &, bool)));
     if (QRadioButton *radio = m_channelControls[i]->modeRadio()) {
       m_channelButtonGroup->addButton(radio, i);
       if (i == (int)eHue) radio->setChecked(true);
-    }
+  }
   }
   connect(m_channelButtonGroup, SIGNAL(buttonClicked(int)), this,
           SLOT(setWheelChannel(int)));
@@ -3372,14 +4331,14 @@ PlainColorPage::PlainColorPage(QWidget *parent)
     m_slidersContainer->setLayout(slidersLayout);
     m_slidersContainer->setMinimumWidth(0);
 
-    m_featureBar = new QWidget(this);
-    m_featureBar->setFixedHeight(22);
-    m_featureBar->setMinimumWidth(0);
-    QHBoxLayout *featureLay = new QHBoxLayout(m_featureBar);
-    featureLay->setContentsMargins(2, 1, 2, 1);
-    featureLay->setSpacing(2);
+    m_colorFeaturesBar = new QWidget(this);
+    m_colorFeaturesBar->setFixedHeight(22);
+    m_colorFeaturesBar->setMinimumWidth(0);
+    QHBoxLayout *colorFeaturesLay = new QHBoxLayout(m_colorFeaturesBar);
+    colorFeaturesLay->setContentsMargins(2, 1, 2, 1);
+    colorFeaturesLay->setSpacing(2);
 
-    m_collectorBtn = new QToolButton(m_featureBar);
+    m_collectorBtn = new QToolButton(m_colorFeaturesBar);
     m_collectorBtn->setCheckable(true);
     m_collectorBtn->setAutoRaise(true);
     m_collectorBtn->setFocusPolicy(Qt::NoFocus);
@@ -3388,9 +4347,9 @@ PlainColorPage::PlainColorPage(QWidget *parent)
     m_collectorBtn->setIconSize(QSize(18, 18));
     m_collectorBtn->setIcon(createQIcon("colorpicker_collector"));
     m_collectorBtn->setToolTip(tr("Color Collector"));
-    featureLay->addWidget(m_collectorBtn, 0);
+    colorFeaturesLay->addWidget(m_collectorBtn, 0);
 
-    m_historyBtn = new QToolButton(m_featureBar);
+    m_historyBtn = new QToolButton(m_colorFeaturesBar);
     m_historyBtn->setCheckable(true);
     m_historyBtn->setAutoRaise(true);
     m_historyBtn->setFocusPolicy(Qt::NoFocus);
@@ -3399,9 +4358,9 @@ PlainColorPage::PlainColorPage(QWidget *parent)
     m_historyBtn->setIconSize(QSize(20, 20));
     m_historyBtn->setIcon(createQIcon("colorpicker_history"));
     m_historyBtn->setToolTip(tr("Color History"));
-    featureLay->addWidget(m_historyBtn, 0);
+    colorFeaturesLay->addWidget(m_historyBtn, 0);
 
-    m_harmonyBtn = new QToolButton(m_featureBar);
+    m_harmonyBtn = new QToolButton(m_colorFeaturesBar);
     m_harmonyBtn->setCheckable(true);
     m_harmonyBtn->setAutoRaise(true);
     m_harmonyBtn->setFocusPolicy(Qt::NoFocus);
@@ -3410,9 +4369,9 @@ PlainColorPage::PlainColorPage(QWidget *parent)
     m_harmonyBtn->setIconSize(QSize(20, 20));
     m_harmonyBtn->setIcon(createQIcon("colorpicker_harmony"));
     m_harmonyBtn->setToolTip(tr("Color Harmonies"));
-    featureLay->addWidget(m_harmonyBtn, 0);
+    colorFeaturesLay->addWidget(m_harmonyBtn, 0);
 
-    m_shadesBtn = new QToolButton(m_featureBar);
+    m_shadesBtn = new QToolButton(m_colorFeaturesBar);
     m_shadesBtn->setCheckable(true);
     m_shadesBtn->setAutoRaise(true);
     m_shadesBtn->setFocusPolicy(Qt::NoFocus);
@@ -3421,8 +4380,19 @@ PlainColorPage::PlainColorPage(QWidget *parent)
     m_shadesBtn->setIconSize(QSize(16, 16));
     m_shadesBtn->setIcon(createQIcon("colorpicker_shades"));
     m_shadesBtn->setToolTip(tr("Color Shades"));
-    featureLay->addWidget(m_shadesBtn, 0);
-    featureLay->addStretch(1);
+    colorFeaturesLay->addWidget(m_shadesBtn, 0);
+
+    m_mixerBtn = new QToolButton(m_colorFeaturesBar);
+    m_mixerBtn->setCheckable(true);
+    m_mixerBtn->setAutoRaise(true);
+    m_mixerBtn->setFocusPolicy(Qt::NoFocus);
+    m_mixerBtn->setFixedSize(20, 20);
+    m_mixerBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    m_mixerBtn->setIconSize(QSize(16, 16));
+    m_mixerBtn->setIcon(createQIcon("colorpicker_mixer"));
+    m_mixerBtn->setToolTip(tr("Color Mixer"));
+    colorFeaturesLay->addWidget(m_mixerBtn, 0);
+    colorFeaturesLay->addStretch(1);
 
     QFrame *collectorFrame = new QFrame(this);
     collectorFrame->setObjectName("PlainColorPageParts");
@@ -3507,12 +4477,34 @@ PlainColorPage::PlainColorPage(QWidget *parent)
             static_cast<ColorHistoryGrid *>(m_historyGrid)->push(m_color);
         });
 
+    QFrame *mixerFrame = new QFrame(this);
+    mixerFrame->setObjectName("PlainColorPageParts");
+    mixerFrame->setMinimumWidth(0);
+    QVBoxLayout *mixerLay = new QVBoxLayout(mixerFrame);
+    mixerLay->setContentsMargins(0, 0, 0, 0);
+    mixerLay->setSpacing(0);
+    m_mixerPane = new ColorMixerPane(mixerFrame);
+    mixerLay->addWidget(m_mixerPane, 1);
+    static_cast<ColorMixerPane *>(m_mixerPane)
+        ->setCurrent([this]() { return m_color; });
+    static_cast<ColorMixerPane *>(m_mixerPane)
+        ->setPick([this](const ColorModel &c) {
+          if (!(m_color == c)) {
+            m_color = c;
+            updateControls();
+          }
+          if (m_signalEnabled) emit colorChanged(m_color, false);
+          if (m_historyGrid)
+            static_cast<ColorHistoryGrid *>(m_historyGrid)->push(m_color);
+        });
+
     m_featureStack = new QStackedWidget(this);
     m_featureStack->addWidget(m_slidersContainer);
     m_featureStack->addWidget(collectorFrame);
     m_featureStack->addWidget(historyFrame);
     m_featureStack->addWidget(harmonyFrame);
     m_featureStack->addWidget(shadesFrame);
+    m_featureStack->addWidget(mixerFrame);
     m_featureStack->setCurrentIndex(0);
     auto uncheckBtn = [](QToolButton *btn) {
       if (!btn || !btn->isChecked()) return;
@@ -3525,6 +4517,7 @@ PlainColorPage::PlainColorPage(QWidget *parent)
       if (keep != m_historyBtn) uncheckBtn(m_historyBtn);
       if (keep != m_harmonyBtn) uncheckBtn(m_harmonyBtn);
       if (keep != m_shadesBtn) uncheckBtn(m_shadesBtn);
+      if (keep != m_mixerBtn) uncheckBtn(m_mixerBtn);
     };
     connect(m_collectorBtn, &QToolButton::toggled, this,
             [this, uncheckOthers](bool on) {
@@ -3546,12 +4539,17 @@ PlainColorPage::PlainColorPage(QWidget *parent)
               if (on) uncheckOthers(m_shadesBtn);
               syncFeaturePage();
             });
+    connect(m_mixerBtn, &QToolButton::toggled, this,
+            [this, uncheckOthers](bool on) {
+              if (on) uncheckOthers(m_mixerBtn);
+              syncFeaturePage();
+            });
 
     QWidget *featureHost = new QWidget(this);
     QVBoxLayout *hostLay = new QVBoxLayout(featureHost);
     hostLay->setContentsMargins(0, 0, 0, 0);
     hostLay->setSpacing(0);
-    hostLay->addWidget(m_featureBar, 0);
+    hostLay->addWidget(m_colorFeaturesBar, 0);
     hostLay->addWidget(m_featureStack, 1);
     m_vSplitter->addWidget(featureHost);
 
@@ -3664,12 +4662,13 @@ PlainColorPage::PlainColorPage(QWidget *parent)
   };
   enableCtx(this);
   enableCtx(m_pickerFrame);
-  enableCtx(m_featureBar);
+  enableCtx(m_colorFeaturesBar);
   enableCtx(m_slidersContainer);
   if (m_collectorGrid) enableCtx(m_collectorGrid);
   if (m_historyGrid) enableCtx(m_historyGrid);
   if (m_harmonyPane) enableCtx(m_harmonyPane);
   if (m_shadesPane) enableCtx(m_shadesPane);
+  if (m_mixerPane) enableCtx(m_mixerPane);
   enableCtx(m_hsvFrame);
   enableCtx(m_alphaFrame);
   enableCtx(m_rgbFrame);
@@ -3729,11 +4728,11 @@ void PlainColorPage::updateControls() {
   m_squaredColorWheel->setColor(m_color);
   m_squaredColorWheel->update();
 
-  bool signalsBlocked = m_verticalSlider->blockSignals(true);
+bool signalsBlocked = m_verticalSlider->blockSignals(true);
   m_verticalSlider->setColor(m_color);
   m_verticalSlider->setValue(m_color.getValue(m_verticalSlider->getChannel()));
   m_verticalSlider->update();
-  m_verticalSlider->blockSignals(signalsBlocked);
+m_verticalSlider->blockSignals(signalsBlocked);
 
   if (m_variationStrip)
     static_cast<ColorVariationStrip *>(m_variationStrip)->setFrom(m_color);
@@ -3747,7 +4746,9 @@ void PlainColorPage::updateControls() {
 
 void PlainColorPage::syncFeaturePage() {
   if (!m_featureStack) return;
-  if (m_shadesBtn && m_shadesBtn->isChecked())
+  if (m_mixerBtn && m_mixerBtn->isChecked())
+    m_featureStack->setCurrentIndex(5);
+  else if (m_shadesBtn && m_shadesBtn->isChecked())
     m_featureStack->setCurrentIndex(4);
   else if (m_harmonyBtn && m_harmonyBtn->isChecked())
     m_featureStack->setCurrentIndex(3);
@@ -3920,15 +4921,17 @@ void PlainColorPage::updatePickerChrome() {
     m_svShapeBtn->setToolTip(tr("Switch to the square chromatic space"));
   }
   m_pickerChrome->setVisible(showTopChrome);
-  const bool showFeatureBar = StyleEditorShowFeatureBar != 0;
+  const bool showColorFeaturesBar = StyleEditorShowColorFeaturesBar != 0;
   const bool showCollectorBtn =
-      showFeatureBar && StyleEditorShowCollectorButton != 0;
+      showColorFeaturesBar && StyleEditorShowCollectorButton != 0;
   const bool showHistoryBtn =
-      showFeatureBar && StyleEditorShowHistoryButton != 0;
+      showColorFeaturesBar && StyleEditorShowHistoryButton != 0;
   const bool showHarmonyBtn =
-      showFeatureBar && StyleEditorShowHarmonyButton != 0;
+      showColorFeaturesBar && StyleEditorShowHarmonyButton != 0;
   const bool showShadesBtn =
-      showFeatureBar && StyleEditorShowShadesButton != 0;
+      showColorFeaturesBar && StyleEditorShowShadesButton != 0;
+  const bool showMixerBtn =
+      showColorFeaturesBar && StyleEditorShowMixerButton != 0;
   auto uncheckFeature = [](QToolButton *btn) {
     if (!btn || !btn->isChecked()) return;
     bool blocked = btn->blockSignals(true);
@@ -3951,13 +4954,18 @@ void PlainColorPage::updatePickerChrome() {
     m_shadesBtn->setVisible(showShadesBtn);
     if (!showShadesBtn) uncheckFeature(m_shadesBtn);
   }
-  if (!showFeatureBar) {
+  if (m_mixerBtn) {
+    m_mixerBtn->setVisible(showMixerBtn);
+    if (!showMixerBtn) uncheckFeature(m_mixerBtn);
+  }
+  if (!showColorFeaturesBar) {
     uncheckFeature(m_collectorBtn);
     uncheckFeature(m_historyBtn);
     uncheckFeature(m_harmonyBtn);
     uncheckFeature(m_shadesBtn);
+    uncheckFeature(m_mixerBtn);
   }
-  if (m_featureBar) m_featureBar->setVisible(showFeatureBar);
+  if (m_colorFeaturesBar) m_colorFeaturesBar->setVisible(showColorFeaturesBar);
   syncFeaturePage();
   if (QLayout *lay = m_pickerChrome->layout()) lay->activate();
   m_pickerChrome->updateGeometry();
@@ -4031,7 +5039,7 @@ void PlainColorPage::bindSectionActions(QAction *picker, QAction *alpha,
 bool PlainColorPage::connectPickerContextMenu(const QObject *receiver,
                                              const char *member) {
   bool ok = connect(m_hexagonalColorWheel, SIGNAL(contextMenuRequested(QPoint)),
-                    receiver, member);
+                 receiver, member);
   ok = connect(this, SIGNAL(pickerContextMenuRequested(QPoint)), receiver,
                member) &&
        ok;
@@ -4076,7 +5084,7 @@ void PlainColorPage::setWheelChannel(int channel) {
   assert(0 <= channel && channel < 7);
   m_squaredColorWheel->setChannel((ColorChannel)channel);
   bool signalsBlocked = m_verticalSlider->blockSignals(true);
-  m_verticalSlider->setChannel((ColorChannel)channel);
+        m_verticalSlider->setChannel((ColorChannel)channel);
   m_verticalSlider->setRange(0, ChannelMaxValues[channel]);
   m_verticalSlider->setValue(m_color.getValue((ColorChannel)channel));
   m_verticalSlider->update();
@@ -6507,29 +7515,33 @@ void StyleEditor::fillPickerContextMenu(QMenu *menu) {
   showVarBtn->setCheckable(true);
   showVarBtn->setData(QStringLiteral("chrome:var"));
   showVarBtn->setChecked(StyleEditorShowVarButton != 0);
-  QMenu *featuresMenu = menu->addMenu(tr("Style Editor Features"));
-  QAction *showFeatureBar =
-      featuresMenu->addAction(tr("Show Style Editor Features Bar"));
-  showFeatureBar->setCheckable(true);
-  showFeatureBar->setData(QStringLiteral("chrome:feature"));
-  showFeatureBar->setChecked(StyleEditorShowFeatureBar != 0);
+  QMenu *colorFeaturesMenu = menu->addMenu(tr("Color Features Bar"));
+  QAction *showColorFeaturesBar =
+      colorFeaturesMenu->addAction(tr("Show Color Features Bar"));
+  showColorFeaturesBar->setCheckable(true);
+  showColorFeaturesBar->setData(QStringLiteral("chrome:colorFeatures"));
+  showColorFeaturesBar->setChecked(StyleEditorShowColorFeaturesBar != 0);
   QAction *showCollectorBtn =
-      featuresMenu->addAction(tr("Show Color Collector"));
+      colorFeaturesMenu->addAction(tr("Show Color Collector"));
   showCollectorBtn->setCheckable(true);
   showCollectorBtn->setData(QStringLiteral("chrome:collector"));
   showCollectorBtn->setChecked(StyleEditorShowCollectorButton != 0);
-  QAction *showHistoryBtn = featuresMenu->addAction(tr("Show Color History"));
+  QAction *showHistoryBtn = colorFeaturesMenu->addAction(tr("Show Color History"));
   showHistoryBtn->setCheckable(true);
   showHistoryBtn->setData(QStringLiteral("chrome:history"));
   showHistoryBtn->setChecked(StyleEditorShowHistoryButton != 0);
-  QAction *showHarmonyBtn = featuresMenu->addAction(tr("Show Color Harmonies"));
+  QAction *showHarmonyBtn = colorFeaturesMenu->addAction(tr("Show Color Harmonies"));
   showHarmonyBtn->setCheckable(true);
   showHarmonyBtn->setData(QStringLiteral("chrome:harmony"));
   showHarmonyBtn->setChecked(StyleEditorShowHarmonyButton != 0);
-  QAction *showShadesBtn = featuresMenu->addAction(tr("Show Color Shades"));
+  QAction *showShadesBtn = colorFeaturesMenu->addAction(tr("Show Color Shades"));
   showShadesBtn->setCheckable(true);
   showShadesBtn->setData(QStringLiteral("chrome:shades"));
   showShadesBtn->setChecked(StyleEditorShowShadesButton != 0);
+  QAction *showMixerBtn = colorFeaturesMenu->addAction(tr("Show Color Mixer"));
+  showMixerBtn->setCheckable(true);
+  showMixerBtn->setData(QStringLiteral("chrome:mixer"));
+  showMixerBtn->setChecked(StyleEditorShowMixerButton != 0);
   if (advanced) {
     QAction *showShapeBtn = menu->addAction(tr("Show Chromatic Space Icon"));
     showShapeBtn->setCheckable(true);
@@ -6595,8 +7607,8 @@ void StyleEditor::onPickerContextMenu(const QPoint &globalPos) {
   } else if (key == QStringLiteral("chrome:var")) {
     StyleEditorShowVarButton = chosen->isChecked() ? 1 : 0;
     m_plainColorPage->updatePickerChrome();
-  } else if (key == QStringLiteral("chrome:feature")) {
-    StyleEditorShowFeatureBar = chosen->isChecked() ? 1 : 0;
+  } else if (key == QStringLiteral("chrome:colorFeatures")) {
+    StyleEditorShowColorFeaturesBar = chosen->isChecked() ? 1 : 0;
     m_plainColorPage->updatePickerChrome();
   } else if (key == QStringLiteral("chrome:collector")) {
     StyleEditorShowCollectorButton = chosen->isChecked() ? 1 : 0;
@@ -6609,6 +7621,9 @@ void StyleEditor::onPickerContextMenu(const QPoint &globalPos) {
     m_plainColorPage->updatePickerChrome();
   } else if (key == QStringLiteral("chrome:shades")) {
     StyleEditorShowShadesButton = chosen->isChecked() ? 1 : 0;
+    m_plainColorPage->updatePickerChrome();
+  } else if (key == QStringLiteral("chrome:mixer")) {
+    StyleEditorShowMixerButton = chosen->isChecked() ? 1 : 0;
     m_plainColorPage->updatePickerChrome();
   }
 }

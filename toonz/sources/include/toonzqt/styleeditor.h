@@ -523,7 +523,7 @@ class PlainColorPage final : public StyleEditorPage {
   QWidget *m_pickerChrome;
   QWidget *m_sectionBar;
   QToolButton *m_svShapeBtn;
-  QWidget *m_featureBar        = nullptr;
+  QWidget *m_colorFeaturesBar = nullptr;
   QStackedWidget *m_featureStack = nullptr;
   QToolButton *m_collectorBtn  = nullptr;
   QWidget *m_collectorGrid     = nullptr;
@@ -533,6 +533,8 @@ class PlainColorPage final : public StyleEditorPage {
   QWidget *m_harmonyPane       = nullptr;
   QToolButton *m_shadesBtn     = nullptr;
   QWidget *m_shadesPane        = nullptr;
+  QToolButton *m_mixerBtn      = nullptr;
+  QWidget *m_mixerPane         = nullptr;
   QToolButton *m_wheelKindBtn;
   QToolButton *m_rectKindBtn;
   QToolButton *m_advancedModeBtn;
