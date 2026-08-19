@@ -533,6 +533,10 @@ class PlainColorPage final : public StyleEditorPage {
   QWidget *m_harmonyPane       = nullptr;
   QToolButton *m_shadesBtn     = nullptr;
   QWidget *m_shadesPane        = nullptr;
+  QToolButton *m_neighborsBtn  = nullptr;
+  QWidget *m_neighborsPane     = nullptr;
+  QToolButton *m_blendBtn      = nullptr;
+  QWidget *m_blendPane         = nullptr;
   QToolButton *m_mixerBtn      = nullptr;
   QWidget *m_mixerPane         = nullptr;
   QToolButton *m_wheelKindBtn;
