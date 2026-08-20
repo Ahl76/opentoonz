@@ -6,6 +6,7 @@
 #include "toonzqt/gutil.h"
 #include "toonzqt/filefield.h"
 #include "toonzqt/menubarcommand.h"
+#include "../toonz/menubarcommandids.h"
 #include "historytypes.h"
 #include "toonzqt/lutcalibrator.h"
 
@@ -77,6 +78,10 @@
 #include <QKeySequence>
 #include <QFocusEvent>
 #include <QFontMetrics>
+#include <QGestureEvent>
+#include <QTouchEvent>
+#include <QTouchDevice>
+#include <QTabletEvent>
 #include <functional>
 
 namespace {
@@ -110,6 +115,7 @@ TEnv::IntVar StyleEditorShowHarmonyButton("StyleEditorShowHarmonyButton", 1);
 TEnv::IntVar StyleEditorHarmonyCut("StyleEditorHarmonyCut", 0);
 TEnv::IntVar StyleEditorShowShadesButton("StyleEditorShowShadesButton", 1);
 TEnv::IntVar StyleEditorShowMixerButton("StyleEditorShowMixerButton", 1);
+TEnv::IntVar StyleEditorShowColorTabNames("StyleEditorShowColorTabNames", 0);
 TEnv::IntVar StyleEditorShowNeighborsButton("StyleEditorShowNeighborsButton", 1);
 TEnv::IntVar StyleEditorShowBlendButton("StyleEditorShowBlendButton", 1);
 TEnv::IntVar StyleEditorNeighborsDenseGrid("StyleEditorNeighborsDenseGrid", 0);
@@ -122,6 +128,8 @@ TEnv::IntVar StyleEditorNeighborsHPct("StyleEditorNeighborsHPct", 30);
 TEnv::IntVar StyleEditorNeighborsVPct("StyleEditorNeighborsVPct", 40);
 TEnv::IntVar StyleEditorMixerPaintMix("StyleEditorMixerPaintMix", 1);
 TEnv::IntVar StyleEditorMixerBg("StyleEditorMixerBg", 0);
+TEnv::IntVar StyleEditorMixerBrush("StyleEditorMixerBrush", 14);
+TEnv::IntVar StyleEditorMixerPaper("StyleEditorMixerPaper", 0);
 TEnv::StringVar StyleEditorColorBlend0("StyleEditorColorBlend0", "");
 TEnv::StringVar StyleEditorColorBlend1("StyleEditorColorBlend1", "");
 TEnv::StringVar StyleEditorColorBlend2("StyleEditorColorBlend2", "");
@@ -172,6 +180,12 @@ MixerBlend normalizedMixerBlend(int id) {
   if (id == MixerRgb || id == MixerFinger || id == MixerSoft)
     return static_cast<MixerBlend>(id);
   return MixerRyb;
+}
+
+int normalizedMixerRadius(int r) {
+  if (r <= 11) return 8;
+  if (r <= 20) return 14;
+  return 26;
 }
 
 int wrapHue(int h) {
@@ -3807,10 +3821,13 @@ public:
 };
 
 class ColorMixerPane final : public QWidget {
-  static const int kRadius = 14;
+  int m_radius                = 14;
+  bool m_mixPaper              = false;
   QImage m_img;
   QPixmap m_check;
   QPoint m_last;
+  QPoint m_strokePrev;
+  bool m_hasStrokePrev          = false;
   QPoint m_pos;
   QPointF m_view;
   double m_zoom                 = 1.0;
@@ -3822,6 +3839,13 @@ class ColorMixerPane final : public QWidget {
   int m_bgKind                  = 0;
   bool m_space                  = false;
   int m_panKey                  = 0;
+  bool m_touchActive            = false;
+  bool m_touchPanning           = false;
+  bool m_pinchZooming           = false;
+  double m_pinchAccum           = 0.0;
+  QPointF m_touchFirst;
+  QTouchDevice::DeviceType m_touchDevice = QTouchDevice::TouchScreen;
+  bool m_stylusUsed                      = false;
   static const int kHistMax     = 24;
   QList<QImage> m_undo;
   QList<QImage> m_redo;
@@ -3831,6 +3855,9 @@ class ColorMixerPane final : public QWidget {
   QToolButton *m_undoBtn        = nullptr;
   QToolButton *m_redoBtn        = nullptr;
   QToolButton *m_mixModeBtn     = nullptr;
+  QToolButton *m_sizeBtn        = nullptr;
+  QMenu *m_sizeMenu             = nullptr;
+  QToolButton *m_paperBtn       = nullptr;
   std::function<ColorModel()> m_current;
   std::function<void(const ColorModel &)> m_pick;
 
@@ -4120,28 +4147,49 @@ class ColorMixerPane final : public QWidget {
       bo = b2;
       return;
     }
-    const OkLab A = rgbToOklab(r1, g1, b1);
-    const OkLab B = rgbToOklab(r2, g2, b2);
-    const float u = t / 256.f;
-    const float C1  = std::hypot(A.a, A.b);
-    const float C2  = std::hypot(B.a, B.b);
-    const float h1  = std::atan2(A.b, A.a);
-    const float h2  = std::atan2(B.b, B.a);
-    const float dH  = wrapPi(h2 - h1);
-    const float sep = std::fabs(dH) / 3.14159265f;
-    float h;
-    if ((A.b * B.b < 0.f) && sep > 0.35f) {
-      const float greenH = 2.53f;
-      if (u < 0.5f)
-        h = h1 + wrapPi(greenH - h1) * (u * 2.f);
-      else
-        h = greenH + wrapPi(h2 - greenH) * ((u - 0.5f) * 2.f);
+    const OkLab A      = rgbToOklab(r1, g1, b1);
+    const OkLab B      = rgbToOklab(r2, g2, b2);
+    const float u      = t / 256.f;
+    const float blend  = 4.f * u * (1.f - u);
+    const float C1     = std::hypot(A.a, A.b);
+    const float C2     = std::hypot(B.a, B.b);
+    const bool grey1   = C1 < 0.02f;
+    const bool grey2   = C2 < 0.02f;
+    const float h1     = std::atan2(A.b, A.a);
+    const float h2     = std::atan2(B.b, B.a);
+    float h            = 0.f;
+    float sep          = 0.f;
+    if (grey1 && grey2) {
+      h = 0.f;
+    } else if (grey1) {
+      h = h2;
+    } else if (grey2) {
+      h = h1;
     } else {
-      h = h1 + dH * u;
+      const float dH = wrapPi(h2 - h1);
+      sep            = std::fabs(dH) / 3.14159265f;
+      const bool onAxis = std::fabs(std::sin(h1)) > 0.55f &&
+                          std::fabs(std::sin(h2)) > 0.55f;
+      if (onAxis && A.b * B.b < 0.f && sep > 0.35f) {
+        const float greenH = 2.90f;
+        if (u < 0.5f)
+          h = h1 + wrapPi(greenH - h1) * (u * 2.f);
+        else
+          h = greenH + wrapPi(h2 - greenH) * ((u - 0.5f) * 2.f);
+      } else {
+        h = h1 + dH * u;
+      }
     }
-    const float C = C1 + (C2 - C1) * u;
+    const float va = A.a + (B.a - A.a) * u;
+    const float vb = A.b + (B.b - A.b) * u;
+    const float C = std::max((C1 + (C2 - C1) * u) * (1.f - 0.72f * sep * blend),
+                             std::hypot(va, vb));
+    const float neutral = 1.f - std::min(1.f, std::max(C1, C2) / 0.15f);
+    int mr, mg, mb;
+    mixRgb(r1, g1, b1, r2, g2, b2, t, mr, mg, mb);
     OkLab o;
-    o.L = A.L + (B.L - A.L) * u;
+    o.L = rgbToOklab(mr, mg, mb).L *
+          (1.f - 0.45f * std::fabs(A.L - B.L) * neutral * blend);
     o.a = C * std::cos(h);
     o.b = C * std::sin(h);
     oklabToRgb(o, ro, go, bo);
@@ -4167,6 +4215,52 @@ class ColorMixerPane final : public QWidget {
       mixSoft(r1, g1, b1, r2, g2, b2, t, ro, go, bo);
     else
       mixRgb(r1, g1, b1, r2, g2, b2, t, ro, go, bo);
+  }
+
+  void paperRgb(int &r, int &g, int &b) const {
+    if (m_bgKind == 1) {
+      r = g = b = 0;
+      return;
+    }
+    if (m_bgKind == 3) {
+      const QColor c = palette().color(QPalette::Window);
+      r              = c.red();
+      g              = c.green();
+      b              = c.blue();
+      return;
+    }
+    r = g = b = 255;
+  }
+
+  bool hasPaper() const { return m_bgKind == 1 || m_bgKind == 2 || m_bgKind == 3; }
+
+  bool usePaper() const { return m_mixPaper && hasPaper(); }
+
+  bool mixThrough() const { return m_mixPaper && m_bgKind == 0; }
+
+  int smearAlpha(int da, int sa, int mask) const {
+    const int hi = mixThrough() ? 176 : 255;
+    if (da < 1) return std::min(hi, sa * mask / 255);
+    return da > hi - 8 ? hi : std::min(hi, da + mask * (hi - da) / 255);
+  }
+
+  bool sampleMix(const QRgb s, int cv, int &r, int &g, int &b, int &w) const {
+    const int sa = qAlpha(s);
+    const int cut = mixThrough() ? 1 : 8;
+    if (sa < cut) {
+      if (!usePaper()) {
+        w = 0;
+        return false;
+      }
+      paperRgb(r, g, b);
+      w = cv * 255;
+      return w > 0;
+    }
+    r = qRed(s);
+    g = qGreen(s);
+    b = qBlue(s);
+    w = cv * sa;
+    return w > 0;
   }
 
   static int cover255(int dx, int dy, int radius) {
@@ -4210,7 +4304,7 @@ class ColorMixerPane final : public QWidget {
 
   void smudgeTo(const QPoint &from, const QPoint &to) {
     if (m_img.isNull() || from == to) return;
-    const int r  = kRadius;
+    const int r  = m_radius;
     const QRect rf(from.x() - r, from.y() - r, r * 2 + 1, r * 2 + 1);
     const QRect rt(to.x() - r, to.y() - r, r * 2 + 1, r * 2 + 1);
     const QRect box = rf.united(rt).intersected(m_img.rect());
@@ -4231,17 +4325,17 @@ class ColorMixerPane final : public QWidget {
         for (int x = fromBox.left(); x <= fromBox.right(); ++x) {
           const int cv = cover255(x - from.x(), dy, r);
           if (cv < 8) continue;
-          const QRgb s  = srcLine[x - box.x()];
-          const int sa  = qAlpha(s);
-          if (sa < 8) continue;
-          const double w = (double)cv * sa;
+          const QRgb s = srcLine[x - box.x()];
+          int sr, sg, sb, sw;
+          if (!sampleMix(s, cv, sr, sg, sb, sw)) continue;
+          const double w = (double)sw;
           if (m_blend == MixerRyb) {
-            const Ryb o = toRyb(qRed(s), qGreen(s), qBlue(s));
+            const Ryb o = toRyb(sr, sg, sb);
             acc0 += o.r * w;
             acc1 += o.y * w;
             acc2 += o.b * w;
           } else if (m_blend == MixerSoft) {
-            const OkLab o = rgbToOklab(qRed(s), qGreen(s), qBlue(s));
+            const OkLab o = rgbToOklab(sr, sg, sb);
             if (o.b >= 0.f) {
               wL += o.L * w;
               wA += o.a * w;
@@ -4254,9 +4348,9 @@ class ColorMixerPane final : public QWidget {
               cW += w;
             }
           } else {
-            acc0 += qRed(s) * w;
-            acc1 += qGreen(s) * w;
-            acc2 += qBlue(s) * w;
+            acc0 += sr * w;
+            acc1 += sg * w;
+            acc2 += sb * w;
           }
           wsum += w;
         }
@@ -4306,6 +4400,8 @@ class ColorMixerPane final : public QWidget {
     }
 
     const QRect write = rt.intersected(m_img.rect());
+    const bool paper  = usePaper();
+    const int cut     = mixThrough() ? 1 : 8;
     for (int y = write.top(); y <= write.bottom(); ++y) {
       QRgb *line     = reinterpret_cast<QRgb *>(m_img.scanLine(y));
       const int dy   = y - to.y();
@@ -4320,30 +4416,44 @@ class ColorMixerPane final : public QWidget {
         const int srcX = from.x() + dx - box.x();
         if (srcX < 0 || srcX >= snap.width()) continue;
         const QRgb src = srcLine[srcX];
-        const int sa   = qAlpha(src);
+        int sa         = qAlpha(src);
         const QRgb dst = line[x];
-        const int da   = qAlpha(dst);
-        if (finger) {
-          if (sa < 8) continue;
+        int da         = qAlpha(dst);
+        int sr = qRed(src), sg = qGreen(src), sb = qBlue(src);
+        int dr = qRed(dst), dg = qGreen(dst), db = qBlue(dst);
+        if (paper) {
+          if (sa < 8) {
+            paperRgb(sr, sg, sb);
+            sa = 255;
+          }
           if (da < 8) {
-            const int na = sa * mask / 255;
-            if (na < 8) continue;
-            line[x] = qRgba(qRed(src), qGreen(src), qBlue(src), na);
+            paperRgb(dr, dg, db);
+            da = 255;
+          }
+        }
+        if (finger) {
+          if (sa < cut) continue;
+          if (da < cut) {
+            const int na = smearAlpha(0, sa, mask);
+            if (na < cut) continue;
+            line[x] = qRgba(sr, sg, sb, na);
             continue;
           }
-          const int t = mask;
-          line[x]     = qRgba(mixChan(qRed(dst), qRed(src), t),
-                              mixChan(qGreen(dst), qGreen(src), t),
-                              mixChan(qBlue(dst), qBlue(src), t),
-                              da > 200 ? 255
-                                       : std::min(255, da + mask * (255 - da) / 255));
+          int rr = mixChan(dr, sr, mask), gg = mixChan(dg, sg, mask),
+              bb = mixChan(db, sb, mask);
+          const int na = smearAlpha(da, sa, mask);
+          if (na < cut) {
+            line[x] = 0;
+            continue;
+          }
+          line[x] = qRgba(rr, gg, bb, na);
           continue;
         }
-        if (da < 8) {
-          if (sa < 8) continue;
-          const int na = sa * mask / 255;
-          if (na < 8) continue;
-          int rr = qRed(src), gg = qGreen(src), bb = qBlue(src);
+        if (da < cut) {
+          if (sa < cut) continue;
+          const int na = smearAlpha(0, sa, mask);
+          if (na < cut) continue;
+          int rr = sr, gg = sg, bb = sb;
           if (havePick) {
             const int t = mask * 90 / 255;
             mixColors(rr, gg, bb, pickR, pickG, pickB, t, rr, gg, bb);
@@ -4351,42 +4461,83 @@ class ColorMixerPane final : public QWidget {
           line[x] = qRgba(rr, gg, bb, na);
           continue;
         }
-        const int smearT = mask * 72 / 255;
-        const int mixT   = mask * 96 / 255;
-        int rr = qRed(dst), gg = qGreen(dst), bb = qBlue(dst);
-        if (sa >= 8)
-          mixColors(rr, gg, bb, qRed(src), qGreen(src), qBlue(src), smearT, rr,
-                    gg, bb);
+        int smearT = mask * 72 / 255;
+        int mixT   = mask * 96 / 255;
+        if (m_blend == MixerSoft) {
+          smearT = mask * 104 / 255;
+          mixT   = mask * 72 / 255;
+        }
+        int rr = dr, gg = dg, bb = db;
+        if (sa >= cut)
+          mixColors(rr, gg, bb, sr, sg, sb, smearT, rr, gg, bb);
         if (havePick)
           mixColors(rr, gg, bb, pickR, pickG, pickB, mixT, rr, gg, bb);
-        const int na =
-            da > 200 ? 255 : std::min(255, da + mask * (255 - da) / 255);
+        const int na = smearAlpha(da, sa, mask);
+        if (na < cut) {
+          line[x] = 0;
+          continue;
+        }
         line[x] = qRgba(rr, gg, bb, na);
       }
     }
   }
 
-  void stroke(const QPoint &a, const QPoint &b) {
-    ensureImage();
-    const int steps = std::max(1, (a - b).manhattanLength());
+  int stampStride() const { return std::max(1, m_radius / 8); }
+
+  static float catmull(float p0, float p1, float p2, float p3, float t) {
+    const float t2 = t * t;
+    const float t3 = t2 * t;
+    return 0.5f *
+           ((2.f * p1) + (-p0 + p2) * t +
+            (2.f * p0 - 5.f * p1 + 4.f * p2 - p3) * t2 +
+            (-p0 + 3.f * p1 - 3.f * p2 + p3) * t3);
+  }
+
+  static QPoint catmullPt(const QPoint &a, const QPoint &b, const QPoint &c,
+                          const QPoint &d, float t) {
+    return QPoint((int)std::lround(catmull((float)a.x(), (float)b.x(),
+                                           (float)c.x(), (float)d.x(), t)),
+                  (int)std::lround(catmull((float)a.y(), (float)b.y(),
+                                           (float)c.y(), (float)d.y(), t)));
+  }
+
+  void dabAt(const QPoint &from, const QPoint &to) {
     if (m_paint) {
       if (!m_current) return;
       const TPixel32 pix = m_current().getTPixel();
-      const QRgb paint   = qRgba(pix.r, pix.g, pix.b, 255);
-      for (int i = 0; i <= steps; ++i) {
-        const QPoint p(a.x() + (b.x() - a.x()) * i / steps,
-                       a.y() + (b.y() - a.y()) * i / steps);
-        stampPaint(p, paint, kRadius);
-      }
+      stampPaint(to, qRgba(pix.r, pix.g, pix.b, 255), m_radius);
       return;
     }
-    QPoint prev = a;
-    for (int i = 1; i <= steps; ++i) {
+    smudgeTo(from, to);
+  }
+
+  void stroke(const QPoint &a, const QPoint &b) {
+    ensureImage();
+    const int steps  = std::max(1, (a - b).manhattanLength());
+    const int stride = stampStride();
+    QPoint prev      = a;
+    for (int i = stride; i <= steps; i += stride) {
       const QPoint p(a.x() + (b.x() - a.x()) * i / steps,
                      a.y() + (b.y() - a.y()) * i / steps);
-      smudgeTo(prev, p);
+      dabAt(prev, p);
       prev = p;
     }
+    if (prev != b) dabAt(prev, b);
+  }
+
+  void strokeCurve(const QPoint &a, const QPoint &b, const QPoint &c) {
+    ensureImage();
+    const QPoint d(2 * c.x() - b.x(), 2 * c.y() - b.y());
+    const int steps  = std::max(1, (b - c).manhattanLength());
+    const int stride = stampStride();
+    QPoint prev      = b;
+    for (int i = stride; i <= steps; i += stride) {
+      const QPoint p = catmullPt(a, b, c, d, (float)i / (float)steps);
+      if (p == prev) continue;
+      dabAt(prev, p);
+      prev = p;
+    }
+    if (prev != c) dabAt(prev, c);
   }
 
   void pickAt(const QPoint &p) {
@@ -4400,7 +4551,6 @@ class ColorMixerPane final : public QWidget {
     m_pick(c);
   }
 
-  // Viewer pan (T_HandView / bare Space), taken before the app shortcut.
   static bool isViewerPanShortcut(const QKeyEvent *ke) {
     const std::string keyStr =
         QKeySequence(ke->key() + ke->modifiers()).toString().toStdString();
@@ -4424,12 +4574,163 @@ class ColorMixerPane final : public QWidget {
       setCursor(Qt::ArrowCursor);
   }
 
+  static bool touchGesturesOn() {
+    QAction *a = CommandManager::instance()->getAction(MI_TouchGestureControl);
+    return a && a->isChecked();
+  }
+
+  static bool isSynthesizedMouse(const QMouseEvent *e) {
+    return e->source() == Qt::MouseEventSynthesizedBySystem ||
+           e->source() == Qt::MouseEventSynthesizedByQt;
+  }
+
+  bool hitsBar(const QPoint &pos) const {
+    return m_bar && m_bar->geometry().contains(pos);
+  }
+
+  QColor barInk() const {
+    return ThemeManager::getInstance().getIconBaseColor();
+  }
+
+  QIcon sizeIcon(int radius, int px = 16) const {
+    QPixmap pm(px, px);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setBrush(barInk());
+    p.setPen(Qt::NoPen);
+    int d = radius <= 11 ? 5 : (radius <= 20 ? 8 : 12);
+    if (px > 16) d = radius <= 11 ? 8 : (radius <= 20 ? 14 : 20);
+    p.drawEllipse((px - d) / 2, (px - d) / 2, d, d);
+    return QIcon(pm);
+  }
+
+  void applyPaperIcon() {
+    if (!m_paperBtn) return;
+    QPixmap pm(16, 16);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    const QColor ink = barInk();
+    p.setPen(QPen(ink, 1));
+    p.setBrush(Qt::NoBrush);
+    p.drawRoundedRect(2, 2, 12, 12, 2, 2);
+    p.setPen(Qt::NoPen);
+    p.setBrush(ink);
+    p.drawEllipse(6, 6, 7, 7);
+    m_paperBtn->setIcon(QIcon(pm));
+  }
+
+  void refreshBarIcons() {
+    if (m_sizeBtn) m_sizeBtn->setIcon(sizeIcon(m_radius));
+    if (m_sizeMenu) {
+      for (QAction *a : m_sizeMenu->actions()) {
+        const int r = a->data().toInt();
+        if (r > 0) a->setIcon(sizeIcon(r, 24));
+      }
+    }
+    applyPaperIcon();
+  }
+
+  void applyRadius(int r) {
+    m_radius                = normalizedMixerRadius(r);
+    StyleEditorMixerBrush = m_radius;
+    if (m_sizeBtn) {
+      m_sizeBtn->setIcon(sizeIcon(m_radius));
+      m_sizeBtn->setToolTip(tr("Size"));
+    }
+  }
+
+  void gestureEvent(QGestureEvent *e) {
+    if (QGesture *pinch = e->gesture(Qt::PinchGesture)) {
+      QPinchGesture *gesture = static_cast<QPinchGesture *>(pinch);
+      QPinchGesture::ChangeFlags changeFlags = gesture->changeFlags();
+      QPoint center = gesture->centerPoint().toPoint();
+      if (m_touchDevice == QTouchDevice::TouchScreen)
+        center = mapFromGlobal(center);
+      if (gesture->state() == Qt::GestureStarted) {
+        m_pinchZooming = false;
+        m_pinchAccum   = 0.0;
+      } else if (gesture->state() == Qt::GestureFinished ||
+                 gesture->state() == Qt::GestureCanceled) {
+        m_pinchZooming = false;
+        m_pinchAccum   = 0.0;
+      } else if (changeFlags & QPinchGesture::ScaleFactorChanged) {
+        double scaleFactor = gesture->scaleFactor();
+        if (scaleFactor > 1) {
+          double decimalValue = scaleFactor - 1;
+          decimalValue /= 1.5;
+          scaleFactor = 1 + decimalValue;
+        } else if (scaleFactor < 1) {
+          double decimalValue = 1 - scaleFactor;
+          decimalValue /= 1.5;
+          scaleFactor = 1 - decimalValue;
+        }
+        if (!m_pinchZooming) {
+          m_pinchAccum += scaleFactor - 1;
+          if (m_pinchAccum > 0.2 || m_pinchAccum < -0.2) m_pinchZooming = true;
+        }
+        if (m_pinchZooming) {
+          zoomQt(center, scaleFactor);
+          m_touchPanning = false;
+        }
+      }
+    }
+    e->accept();
+  }
+
+  void touchEvent(QTouchEvent *e, int type) {
+    if (type == QEvent::TouchBegin) {
+      m_touchActive  = true;
+      m_touchPanning = false;
+      if (!e->touchPoints().isEmpty()) {
+        m_touchFirst  = e->touchPoints().at(0).pos();
+        m_touchDevice = e->device()->type();
+      }
+    } else if (m_touchActive && !m_pinchZooming && !e->touchPoints().isEmpty()) {
+      const bool twoFingerPad =
+          e->touchPoints().count() == 2 && m_touchDevice == QTouchDevice::TouchPad;
+      const bool oneFingerScreen =
+          e->touchPoints().count() == 1 &&
+          m_touchDevice == QTouchDevice::TouchScreen;
+      if (twoFingerPad || oneFingerScreen) {
+        const QTouchEvent::TouchPoint panPoint = e->touchPoints().at(0);
+        if (!m_touchPanning) {
+          if ((panPoint.pos() - m_touchFirst).manhattanLength() > 12)
+            m_touchPanning = true;
+        }
+        if (m_touchPanning)
+          panQt(panPoint.pos().toPoint() - panPoint.lastPos().toPoint());
+      }
+    }
+    if (type == QEvent::TouchEnd || type == QEvent::TouchCancel) {
+      m_touchActive  = false;
+      m_touchPanning = false;
+    }
+    e->accept();
+  }
+
 protected:
   bool event(QEvent *e) override {
     if (e->type() == QEvent::ShortcutOverride) {
       QKeyEvent *ke = static_cast<QKeyEvent *>(e);
       if (isViewerPanShortcut(ke)) {
         e->accept();
+        return true;
+      }
+    }
+    if (touchGesturesOn() && !m_stylusUsed) {
+      if (e->type() == QEvent::Gesture) {
+        gestureEvent(static_cast<QGestureEvent *>(e));
+        return true;
+      }
+      if (e->type() == QEvent::TouchBegin || e->type() == QEvent::TouchEnd ||
+          e->type() == QEvent::TouchCancel || e->type() == QEvent::TouchUpdate) {
+        auto *te = static_cast<QTouchEvent *>(e);
+        if (e->type() == QEvent::TouchBegin && !te->touchPoints().isEmpty() &&
+            hitsBar(te->touchPoints().at(0).pos().toPoint()))
+          return QWidget::event(e);
+        touchEvent(te, e->type());
         return true;
       }
     }
@@ -4481,70 +4782,138 @@ protected:
     }
   }
 
-  void mousePressEvent(QMouseEvent *e) override {
-    m_mouseButton = e->button();
-    m_pos         = e->pos();
+  void pointerPress(const QPoint &pos, Qt::MouseButton button,
+                    Qt::KeyboardModifiers mods) {
+    m_mouseButton = button;
+    m_pos         = pos;
     setFocus(Qt::MouseFocusReason);
     if (m_mouseButton == Qt::MiddleButton ||
         (m_mouseButton == Qt::LeftButton && m_space)) {
       setCursor(Qt::ClosedHandCursor);
-      e->accept();
       return;
     }
-    if (m_mouseButton != Qt::LeftButton) {
-      QWidget::mousePressEvent(e);
-      return;
-    }
-    m_down  = true;
-    m_moved = false;
-    m_paint = (e->modifiers() & Qt::AltModifier);
-    m_last  = toImg(e->pos());
+    if (m_mouseButton != Qt::LeftButton) return;
+    m_down          = true;
+    m_moved         = false;
+    m_paint         = (mods & Qt::AltModifier);
+    m_last          = toImg(pos);
+    m_hasStrokePrev = false;
     beginStrokeHist();
     if (m_paint && m_current) {
       const TPixel32 pix = m_current().getTPixel();
-      stampPaint(m_last, qRgba(pix.r, pix.g, pix.b, 255), kRadius);
+      stampPaint(m_last, qRgba(pix.r, pix.g, pix.b, 255), m_radius);
       update();
     }
+  }
+
+  void pointerMove(const QPoint &pos, Qt::MouseButtons buttons) {
+    if ((buttons & Qt::MiddleButton) || m_mouseButton == Qt::MiddleButton ||
+        (m_space && (buttons & Qt::LeftButton))) {
+      panQt(pos - m_pos);
+      m_pos = pos;
+      return;
+    }
+    if (!m_down || m_mouseButton != Qt::LeftButton) return;
+    const QPoint p = toImg(pos);
+    if (p == m_last) return;
+    m_moved = true;
+    if (m_hasStrokePrev)
+      strokeCurve(m_strokePrev, m_last, p);
+    else
+      stroke(m_last, p);
+    m_strokePrev    = m_last;
+    m_last          = p;
+    m_hasStrokePrev = true;
+    update();
+  }
+
+  void pointerRelease(const QPoint &pos, Qt::MouseButton button) {
+    if (m_mouseButton == Qt::MiddleButton ||
+        (button == Qt::LeftButton && m_space)) {
+      m_mouseButton = Qt::NoButton;
+      m_down        = false;
+      setCursor(m_space ? Qt::OpenHandCursor : Qt::ArrowCursor);
+      return;
+    }
+    m_mouseButton = Qt::NoButton;
+    if (button != Qt::LeftButton || !m_down) return;
+    m_down = false;
+    commitStrokeHist();
+    if (!m_moved && !m_paint) pickAt(toImg(pos));
+  }
+
+  void tabletEvent(QTabletEvent *e) override {
+    if (e->type() == QTabletEvent::TabletPress) {
+      if (hitsBar(e->pos())) {
+        e->ignore();
+        return;
+      }
+      m_stylusUsed = e->pointerType() != QTabletEvent::UnknownPointer;
+      if (e->button() == Qt::LeftButton)
+        pointerPress(e->pos(), e->button(), e->modifiers());
+      else
+        m_stylusUsed = false;
+      e->accept();
+      return;
+    }
+    if (e->type() == QTabletEvent::TabletMove) {
+      if (!m_stylusUsed) {
+        e->ignore();
+        return;
+      }
+      pointerMove(e->pos(), e->buttons());
+      e->accept();
+      return;
+    }
+    if (e->type() == QTabletEvent::TabletRelease) {
+      if (!m_stylusUsed) {
+        e->ignore();
+        return;
+      }
+      pointerRelease(e->pos(), e->button());
+      m_stylusUsed = false;
+      e->accept();
+      return;
+    }
+    QWidget::tabletEvent(e);
+  }
+
+  void mousePressEvent(QMouseEvent *e) override {
+    if (m_stylusUsed) {
+      e->accept();
+      return;
+    }
+    if (touchGesturesOn() && isSynthesizedMouse(e)) {
+      e->accept();
+      return;
+    }
+    pointerPress(e->pos(), e->button(), e->modifiers());
     e->accept();
   }
 
   void mouseMoveEvent(QMouseEvent *e) override {
-    const QPoint cur = e->pos();
-    if ((e->buttons() & Qt::MiddleButton) ||
-        m_mouseButton == Qt::MiddleButton ||
-        (m_space && (e->buttons() & Qt::LeftButton))) {
-      panQt(cur - m_pos);
-      m_pos = cur;
+    if (m_stylusUsed) {
       e->accept();
       return;
     }
-    if (!m_down || m_mouseButton != Qt::LeftButton) return;
-    const QPoint p = toImg(cur);
-    if (p == m_last) return;
-    m_moved = true;
-    stroke(m_last, p);
-    m_last = p;
-    update();
+    if (touchGesturesOn() && isSynthesizedMouse(e)) {
+      e->accept();
+      return;
+    }
+    pointerMove(e->pos(), e->buttons());
     e->accept();
   }
 
   void mouseReleaseEvent(QMouseEvent *e) override {
-    if (m_mouseButton == Qt::MiddleButton ||
-        (e->button() == Qt::LeftButton && m_space)) {
-      m_mouseButton = Qt::NoButton;
-      m_down        = false;
-      setCursor(m_space ? Qt::OpenHandCursor : Qt::ArrowCursor);
+    if (m_stylusUsed) {
       e->accept();
       return;
     }
-    m_mouseButton = Qt::NoButton;
-    if (e->button() != Qt::LeftButton || !m_down) {
-      QWidget::mouseReleaseEvent(e);
+    if (touchGesturesOn() && isSynthesizedMouse(e)) {
+      e->accept();
       return;
     }
-    m_down = false;
-    commitStrokeHist();
-    if (!m_moved && !m_paint) pickAt(toImg(e->pos()));
+    pointerRelease(e->pos(), e->button());
     e->accept();
   }
 
@@ -4618,12 +4987,15 @@ public:
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setMouseTracking(false);
     setFocusPolicy(Qt::StrongFocus);
+    setAttribute(Qt::WA_AcceptTouchEvents);
+    grabGesture(Qt::PinchGesture);
     setToolTip(tr("Color Mixer"));
 
     m_bar = new QWidget(this);
     m_bar->setFixedHeight(16);
     m_bar->setAutoFillBackground(true);
     m_bar->setFocusPolicy(Qt::NoFocus);
+    m_bar->setAttribute(Qt::WA_AcceptTouchEvents);
     auto *barLay = new QHBoxLayout(m_bar);
     barLay->setContentsMargins(2, 0, 2, 0);
     barLay->setSpacing(0);
@@ -4697,6 +5069,35 @@ public:
     });
     barLay->addWidget(m_mixModeBtn);
 
+    m_radius  = normalizedMixerRadius(StyleEditorMixerBrush);
+    m_sizeBtn = mkBtn(0, tr("Size"));
+    m_sizeBtn->setPopupMode(QToolButton::InstantPopup);
+    m_sizeBtn->setIcon(sizeIcon(m_radius));
+    m_sizeMenu   = new QMenu(m_sizeBtn);
+    auto addSize = [this](int r, const QString &label) {
+      QAction *a = m_sizeMenu->addAction(sizeIcon(r, 24), label);
+      a->setData(r);
+    };
+    addSize(8, tr("Small"));
+    addSize(14, tr("Medium"));
+    addSize(26, tr("Large"));
+    m_sizeBtn->setMenu(m_sizeMenu);
+    connect(m_sizeMenu, &QMenu::triggered, this, [this](QAction *a) {
+      applyRadius(a->data().toInt());
+    });
+    barLay->addWidget(m_sizeBtn);
+
+    m_mixPaper  = StyleEditorMixerPaper != 0;
+    m_paperBtn  = mkBtn(0, tr("Mix with the visible background"));
+    m_paperBtn->setCheckable(true);
+    m_paperBtn->setChecked(m_mixPaper);
+    applyPaperIcon();
+    connect(m_paperBtn, &QToolButton::toggled, this, [this](bool on) {
+      m_mixPaper            = on;
+      StyleEditorMixerPaper = on ? 1 : 0;
+    });
+    barLay->addWidget(m_paperBtn);
+
     auto *gap = new QWidget(m_bar);
     gap->setFixedWidth(4);
     barLay->addWidget(gap);
@@ -4709,7 +5110,7 @@ public:
     QToolButton *bgWhite =
         mkBtn("browser_preview_white", tr("White background"));
     QToolButton *bgNone =
-        mkBtn("browser_preview_transparency", tr("Transparent background"));
+        mkBtn("browser_preview_transparency", tr("Theme background"));
     bgChecker->setCheckable(true);
     bgBlack->setCheckable(true);
     bgWhite->setCheckable(true);
@@ -4734,6 +5135,10 @@ public:
     barLay->addWidget(bgBlack);
     barLay->addWidget(bgWhite);
     barLay->addWidget(bgNone);
+
+    connect(ThemePropertiesNotifier::instance(),
+            &ThemePropertiesNotifier::propertiesChanged, this,
+            [this]() { refreshBarIcons(); });
   }
 
   void setCurrent(std::function<ColorModel()> cb) { m_current = std::move(cb); }
@@ -5528,6 +5933,30 @@ void PlainColorPage::syncFeaturePage() {
     m_featureStack->setCurrentIndex(1);
   else
     m_featureStack->setCurrentIndex(0);
+
+  const bool names = StyleEditorShowColorTabNames != 0;
+  auto applyName   = [names](QToolButton *btn, const QString &label) {
+    if (!btn) return;
+    if (names && btn->isChecked()) {
+      btn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+      btn->setText(label);
+      btn->setMinimumSize(QSize(20, 20));
+      btn->setMaximumSize(QSize(QWIDGETSIZE_MAX, 20));
+      btn->setFixedHeight(20);
+      btn->setFixedWidth(std::max(20, btn->sizeHint().width()));
+    } else {
+      btn->setToolButtonStyle(Qt::ToolButtonIconOnly);
+      btn->setText(QString());
+      btn->setFixedSize(20, 20);
+    }
+  };
+  applyName(m_collectorBtn, tr("Color Collector"));
+  applyName(m_historyBtn, tr("Color History"));
+  applyName(m_harmonyBtn, tr("Color Harmonies"));
+  applyName(m_shadesBtn, tr("Color Shades"));
+  applyName(m_neighborsBtn, tr("Neighboring Colors"));
+  applyName(m_blendBtn, tr("Intermediate Colors"));
+  applyName(m_mixerBtn, tr("Color Mixer"));
 }
 
 //-----------------------------------------------------------------------------
@@ -8305,6 +8734,10 @@ void StyleEditor::fillPickerContextMenu(QMenu *menu) {
   showColorFeaturesBar->setCheckable(true);
   showColorFeaturesBar->setData(QStringLiteral("chrome:colorFeatures"));
   showColorFeaturesBar->setChecked(StyleEditorShowColorFeaturesBar != 0);
+  QAction *showTabNames = colorFeaturesMenu->addAction(tr("Show Tab Names"));
+  showTabNames->setCheckable(true);
+  showTabNames->setData(QStringLiteral("chrome:tabNames"));
+  showTabNames->setChecked(StyleEditorShowColorTabNames != 0);
   QAction *showCollectorBtn =
       colorFeaturesMenu->addAction(tr("Show Color Collector"));
   showCollectorBtn->setCheckable(true);
@@ -8403,6 +8836,9 @@ void StyleEditor::onPickerContextMenu(const QPoint &globalPos) {
     m_plainColorPage->updatePickerChrome();
   } else if (key == QStringLiteral("chrome:colorFeatures")) {
     StyleEditorShowColorFeaturesBar = chosen->isChecked() ? 1 : 0;
+    m_plainColorPage->updatePickerChrome();
+  } else if (key == QStringLiteral("chrome:tabNames")) {
+    StyleEditorShowColorTabNames = chosen->isChecked() ? 1 : 0;
     m_plainColorPage->updatePickerChrome();
   } else if (key == QStringLiteral("chrome:collector")) {
     StyleEditorShowCollectorButton = chosen->isChecked() ? 1 : 0;
