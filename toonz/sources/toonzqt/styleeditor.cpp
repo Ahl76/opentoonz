@@ -764,7 +764,7 @@ QPixmap makeSquareShading(const ShadeMaker &shadeMaker, int width, int height) {
   for (j = 0; j < height; j++) {
     int u = 255 - (255 * j / (height - 1));
     for (i = 0; i < width; i++) {
-      int v = 255 * i / (width - 1);
+      int v = 255 - (255 * i / (width - 1));
       image.setPixel(i, j, shadeMaker.shade(v, u));
     }
   }
@@ -991,8 +991,8 @@ void HexagonalColorWheel::computeAdvancedSVTriangle() {
     float rad = deg / 180.0f * 3.1415f;
     return QPointF(cx + R * cosf(rad), cy - R * sinf(rad));
   };
-  m_leftp[0] = onCircle(30.0f);
-  m_leftp[2] = onCircle(150.0f);
+  m_leftp[0] = onCircle(150.0f);
+  m_leftp[2] = onCircle(30.0f);
   m_leftp[1] = onCircle(270.0f);
   m_triEdgeLen = (float)QLineF(m_leftp[0], m_leftp[2]).length();
   m_triHeight  = (float)QLineF(m_leftp[1], m_circleCenter).length();
@@ -1213,8 +1213,8 @@ void HexagonalColorWheel::drawSatValueSquare() {
     const float yB = y0 + (1.0f - v1) * h;
     glBegin(GL_TRIANGLE_STRIP);
     for (int i = 0; i <= n; ++i) {
-      const float s = (float)i / (float)n;
-      const float x = x0 + s * w;
+      const float s = 1.0f - (float)i / (float)n;
+      const float x = x0 + ((float)i / (float)n) * w;
       QColor c0     = QColor::fromHsv(hue, (int)(s * 255.0f + 0.5f),
                                       (int)(v0 * 255.0f + 0.5f));
       QColor c1     = QColor::fromHsv(hue, (int)(s * 255.0f + 0.5f),
@@ -1326,7 +1326,7 @@ void HexagonalColorWheel::svFromTrianglePoint(const QPointF &localPos, int &s,
 QPointF HexagonalColorWheel::svSquareMarkerPos(float s, float v) const {
   const float S = s / 100.0f;
   const float V = v / 100.0f;
-  return QPointF(m_svSquare.left() + S * m_svSquare.width(),
+  return QPointF(m_svSquare.left() + (1.0f - S) * m_svSquare.width(),
                  m_svSquare.top() + (1.0f - V) * m_svSquare.height());
 }
 
@@ -1336,7 +1336,7 @@ void HexagonalColorWheel::svFromSquarePoint(const QPointF &localPos, int &s,
                                             int &v) const {
   const float w = std::max((float)m_svSquare.width(), 1.0f);
   const float h = std::max((float)m_svSquare.height(), 1.0f);
-  float S = (localPos.x() - m_svSquare.left()) / w;
+  float S = 1.0f - (localPos.x() - m_svSquare.left()) / w;
   float V = 1.0f - (localPos.y() - m_svSquare.top()) / h;
   S       = std::min(std::max(S, 0.0f), 1.0f);
   V       = std::min(std::max(V, 0.0f), 1.0f);
@@ -1663,7 +1663,8 @@ void SquaredColorWheel::paintEvent(QPaintEvent *) {
 
   int u = 0, v = 0;
   m_color.getValues(m_channel, u, v);
-  int x = u * width() / ChannelPairMaxValues[m_channel][0];
+  int x = (ChannelPairMaxValues[m_channel][0] - u) * width() /
+          ChannelPairMaxValues[m_channel][0];
   int y = (ChannelPairMaxValues[m_channel][1] - v) * height() /
           ChannelPairMaxValues[m_channel][1];
 
@@ -1676,7 +1677,7 @@ void SquaredColorWheel::paintEvent(QPaintEvent *) {
 //-----------------------------------------------------------------------------
 
 void SquaredColorWheel::click(const QPoint &pos) {
-  int u = ChannelPairMaxValues[m_channel][0] * pos.x() / width();
+  int u = ChannelPairMaxValues[m_channel][0] * (width() - pos.x()) / width();
   int v = ChannelPairMaxValues[m_channel][1] * (height() - pos.y()) / height();
   u     = tcrop(u, 0, ChannelPairMaxValues[m_channel][0]);
   v     = tcrop(v, 0, ChannelPairMaxValues[m_channel][1]);
