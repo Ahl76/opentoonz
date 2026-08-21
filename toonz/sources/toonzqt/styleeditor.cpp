@@ -402,10 +402,13 @@ ColorModel::ColorModel() { memset(m_channels, 0, sizeof m_channels); }
 
 void ColorModel::rgb2hsv() {
   QColor converter(m_channels[0], m_channels[1], m_channels[2]);
-  m_channels[4] =
-      std::max(converter.hue(), 0);  // hue() returns -1 for achromatic colors
-  m_channels[5] = (int)std::round(converter.saturationF() * 100.);
-  m_channels[6] = (int)std::round(converter.valueF() * 100.);
+  // Keep the last hue when the color has no tint.
+  const int hue = converter.hue();
+  if (hue >= 0) m_channels[4] = hue;
+  const int value = (int)std::round(converter.valueF() * 100.);
+  if (value > 0)
+    m_channels[5] = (int)std::round(converter.saturationF() * 100.);
+  m_channels[6] = value;
 }
 
 //-----------------------------------------------------------------------------
@@ -428,10 +431,7 @@ void ColorModel::setTPixel(const TPixel32 &pix) {
   m_channels[1] = color.green();
   m_channels[2] = color.blue();
   m_channels[3] = color.alpha();
-  m_channels[4] =
-      std::max(color.hue(), 0);  // hue() returns -1 for achromatic colors
-  m_channels[5] = (int)std::round(color.saturationF() * 100.);
-  m_channels[6] = (int)std::round(color.valueF() * 100.);
+  rgb2hsv();
 }
 
 //-----------------------------------------------------------------------------
@@ -1594,12 +1594,14 @@ void HexagonalColorWheel::clickLeftWheel(const QPoint &pos) {
   // d is a length from center to edge of the wheel when saturation = 100
   float d = m_hexTriHeight / cosf(phi / 180.0f * 3.1415f);
 
-  int h = (int)theta;
-  if (h > 359) h = 359;
-  // clamping
   int s = (int)(std::min(p.length() / d, 1.0) * 100.0f);
-
-  m_color.setValues(eValue, h, s);
+  if (s <= 0)
+    m_color.setValue(eSaturation, 0);
+  else {
+    int h = (int)theta;
+    if (h > 359) h = 359;
+    m_color.setValues(eValue, h, s);
+  }
 
   emit colorChanged(m_color, true);
 }
