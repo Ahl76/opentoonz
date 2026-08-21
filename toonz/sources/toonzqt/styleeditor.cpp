@@ -3846,6 +3846,7 @@ class ColorMixerPane final : public QWidget {
   QPointF m_touchFirst;
   QTouchDevice::DeviceType m_touchDevice = QTouchDevice::TouchScreen;
   bool m_stylusUsed                      = false;
+  float m_pressure                       = 1.f;
   static const int kHistMax     = 24;
   QList<QImage> m_undo;
   QList<QImage> m_redo;
@@ -4238,10 +4239,60 @@ class ColorMixerPane final : public QWidget {
 
   bool mixThrough() const { return m_mixPaper && m_bgKind == 0; }
 
+  float mixPressure() const { return qBound(0.f, m_pressure, 1.f); }
+
+  int press256() const {
+    return qBound(0, (int)std::lround(mixPressure() * 256.f), 256);
+  }
+
+  float smearMixFactor() const {
+    if (!mixThrough()) return 1.f;
+    return std::sqrt(mixPressure());
+  }
+
+  float alphaMixFactor() const {
+    if (!mixThrough()) return 1.f;
+    return mixPressure();
+  }
+
+  int pressSmearMix(int t) const {
+    if (!mixThrough() || t < 1) return t;
+    if (mixPressure() < 0.001f) return 0;
+    return std::max(1, (int)std::lround(t * smearMixFactor()));
+  }
+
+  int pickWeight(int cv) const {
+    if (!mixThrough()) return cv;
+    return std::max(1, (int)std::lround(cv * smearMixFactor()));
+  }
+
+  int mixThroughAlphaCap() const {
+    const int press = press256();
+    return 176 + (76 * (256 - press) / 256);
+  }
+
+  int mixThroughPressMask(int mask) const {
+    if (!mixThrough()) return mask;
+    return std::max(1, (int)std::lround(mask * alphaMixFactor()));
+  }
+
   int smearAlpha(int da, int sa, int mask) const {
-    const int hi = mixThrough() ? 176 : 255;
-    if (da < 1) return std::min(hi, sa * mask / 255);
-    return da > hi - 8 ? hi : std::min(hi, da + mask * (hi - da) / 255);
+    if (!mixThrough()) {
+      return da > 200 ? 255
+                      : std::min(255, da + mask * (255 - da) / 255);
+    }
+    const int press = press256();
+    const int hi    = mixThroughAlphaCap();
+    const int am    = mixThroughPressMask(mask);
+    if (da < 1) return std::min(hi, sa * am / 255);
+    if (da > hi) {
+      const int na = da + am * (hi - da) / 255;
+      if (press >= 220 && na <= hi + 8) return hi;
+      return std::max(hi, na);
+    }
+    if (press >= 180)
+      return std::min(hi, da + am * (hi - da) / 255);
+    return da;
   }
 
   bool sampleMix(const QRgb s, int cv, int &r, int &g, int &b, int &w) const {
@@ -4327,7 +4378,7 @@ class ColorMixerPane final : public QWidget {
           if (cv < 8) continue;
           const QRgb s = srcLine[x - box.x()];
           int sr, sg, sb, sw;
-          if (!sampleMix(s, cv, sr, sg, sb, sw)) continue;
+          if (!sampleMix(s, pickWeight(cv), sr, sg, sb, sw)) continue;
           const double w = (double)sw;
           if (m_blend == MixerRyb) {
             const Ryb o = toRyb(sr, sg, sb);
@@ -4439,8 +4490,9 @@ class ColorMixerPane final : public QWidget {
             line[x] = qRgba(sr, sg, sb, na);
             continue;
           }
-          int rr = mixChan(dr, sr, mask), gg = mixChan(dg, sg, mask),
-              bb = mixChan(db, sb, mask);
+          const int mixM = pressSmearMix(mask);
+          int rr = mixChan(dr, sr, mixM), gg = mixChan(dg, sg, mixM),
+              bb = mixChan(db, sb, mixM);
           const int na = smearAlpha(da, sa, mask);
           if (na < cut) {
             line[x] = 0;
@@ -4455,17 +4507,17 @@ class ColorMixerPane final : public QWidget {
           if (na < cut) continue;
           int rr = sr, gg = sg, bb = sb;
           if (havePick) {
-            const int t = mask * 90 / 255;
+            const int t = pressSmearMix(mask * 90 / 255);
             mixColors(rr, gg, bb, pickR, pickG, pickB, t, rr, gg, bb);
           }
           line[x] = qRgba(rr, gg, bb, na);
           continue;
         }
-        int smearT = mask * 72 / 255;
-        int mixT   = mask * 96 / 255;
+        int smearT = pressSmearMix(mask * 72 / 255);
+        int mixT   = pressSmearMix(mask * 96 / 255);
         if (m_blend == MixerSoft) {
-          smearT = mask * 104 / 255;
-          mixT   = mask * 72 / 255;
+          smearT = pressSmearMix(mask * 104 / 255);
+          mixT   = pressSmearMix(mask * 72 / 255);
         }
         int rr = dr, gg = dg, bb = db;
         if (sa >= cut)
@@ -4849,6 +4901,7 @@ protected:
         return;
       }
       m_stylusUsed = e->pointerType() != QTabletEvent::UnknownPointer;
+      m_pressure   = qBound(0.f, (float)e->pressure(), 1.f);
       if (e->button() == Qt::LeftButton)
         pointerPress(e->pos(), e->button(), e->modifiers());
       else
@@ -4861,6 +4914,7 @@ protected:
         e->ignore();
         return;
       }
+      m_pressure = qBound(0.f, (float)e->pressure(), 1.f);
       pointerMove(e->pos(), e->buttons());
       e->accept();
       return;
@@ -4887,6 +4941,7 @@ protected:
       e->accept();
       return;
     }
+    m_pressure = 1.f;
     pointerPress(e->pos(), e->button(), e->modifiers());
     e->accept();
   }
