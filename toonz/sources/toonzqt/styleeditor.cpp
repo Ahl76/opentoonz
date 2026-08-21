@@ -72,6 +72,7 @@
 #include <QMouseEvent>
 #include <QResizeEvent>
 #include <QShowEvent>
+#include <QTimer>
 #include <QContextMenuEvent>
 #include <QWheelEvent>
 #include <QKeyEvent>
@@ -4797,6 +4798,12 @@ protected:
     QWidget::enterEvent(e);
   }
 
+  void changeEvent(QEvent *e) override {
+    QWidget::changeEvent(e);
+    if (e->type() == QEvent::StyleChange || e->type() == QEvent::PaletteChange)
+      refreshBarIcons();
+  }
+
   void focusOutEvent(QFocusEvent *e) override {
     endPanHold();
     QWidget::focusOutEvent(e);
@@ -5193,10 +5200,6 @@ public:
     barLay->addWidget(bgBlack);
     barLay->addWidget(bgWhite);
     barLay->addWidget(bgNone);
-
-    connect(ThemePropertiesNotifier::instance(),
-            &ThemePropertiesNotifier::propertiesChanged, this,
-            [this]() { refreshBarIcons(); });
   }
 
   void setCurrent(std::function<ColorModel()> cb) { m_current = std::move(cb); }
