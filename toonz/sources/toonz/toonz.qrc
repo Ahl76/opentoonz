@@ -482,6 +482,11 @@
 		<file>icons/dark/actions/18x18/colored/folder_preset.svg</file>
 
 		<!-- Palette -->
+		<file>icons/dark/actions/16x16/colorpicker_advanced.svg</file>
+		<file>icons/dark/actions/16x16/colorpicker_wheel.svg</file>
+		<file>icons/dark/actions/16x16/colorpicker_rectangle.svg</file>
+		<file>icons/dark/actions/16x16/colorpicker_sv_square.svg</file>
+		<file>icons/dark/actions/16x16/colorpicker_sv_triangle.svg</file>
 		<file>icons/dark/actions/16x16/newstyle.svg</file>
 		<file>icons/dark/actions/16x16/plaincolor.svg</file>
 		<file>icons/dark/actions/16x16/newpage.svg</file>
