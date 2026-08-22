@@ -21,6 +21,7 @@
 #include "toonz/levelproperties.h"
 #include "toonz/mypaintbrushstyle.h"
 #include "toonz/preferences.h"
+#include "toonz/palettecmd.h"
 
 // TnzCore includes
 #include "tconvert.h"
@@ -57,6 +58,7 @@
 #include <QSize>
 #include <QRadioButton>
 #include <QComboBox>
+#include <QListWidget>
 #include <QScrollArea>
 #include <QStackedWidget>
 #include <algorithm>
@@ -66,6 +68,7 @@
 #include <QHelpEvent>
 #include <QSplitter>
 #include <QMenu>
+#include <QAction>
 #include <QStringList>
 #include <QOpenGLFramebufferObject>
 #include <QEvent>
@@ -110,10 +113,13 @@ TEnv::IntVar StyleEditorShowColorFeaturesBar("StyleEditorShowColorFeaturesBar", 
 TEnv::IntVar StyleEditorShowCollectorButton("StyleEditorShowCollectorButton",
                                             1);
 TEnv::IntVar StyleEditorShowHistoryButton("StyleEditorShowHistoryButton", 1);
-TEnv::StringVar StyleEditorColorCollector("StyleEditorColorCollector", "");
+TEnv::StringVar StyleEditorColorSets("StyleEditorColorSets", "");
+TEnv::StringVar StyleEditorColorSetNames("StyleEditorColorSetNames", "");
+TEnv::IntVar StyleEditorColorSet("StyleEditorColorSet", 0);
 TEnv::StringVar StyleEditorColorHistory("StyleEditorColorHistory", "");
 TEnv::IntVar StyleEditorShowHarmonyButton("StyleEditorShowHarmonyButton", 1);
 TEnv::IntVar StyleEditorHarmonyCut("StyleEditorHarmonyCut", 0);
+TEnv::IntVar StyleEditorHarmonyHold("StyleEditorHarmonyHold", 0);
 TEnv::IntVar StyleEditorShowShadesButton("StyleEditorShowShadesButton", 1);
 TEnv::IntVar StyleEditorShowMixerButton("StyleEditorShowMixerButton", 1);
 TEnv::IntVar StyleEditorShowColorTabNames("StyleEditorShowColorTabNames", 0);
@@ -2483,146 +2489,437 @@ public:
   }
 };
 
+static QAction *fillColorOutMenu(QMenu &menu, const QStringList &names);
+static bool runColorOutAction(
+    QAction *chosen, const ColorModel &c,
+    const std::function<void(const ColorModel &, int)> &collectTo,
+    const std::function<void(const ColorModel &)> &addStyle,
+    QAction *addStyleAct);
+static QStringList colorSetLabels(const std::function<QStringList()> &fn);
+
+// Ten named color sets.
 class ColorCollectorGrid final : public QWidget {
-  static const int kCols = 12;
-  static const int kRows = 6;
+public:
+  static const int kColorSets = 10;
+
+private:
+  static const int kCols  = 12;
+  static const int kRows  = 6;
   static const int kCount = kCols * kRows;
   static const int kGap   = 2;
-  ColorModel m_slots[kCount];
-  bool m_filled[kCount];
+  ColorModel m_slots[kColorSets][kCount];
+  bool m_filled[kColorSets][kCount];
+  QString m_names[kColorSets];
+  int m_colorSet = 0;
+  QToolButton *m_toggle = nullptr;
+  QLabel *m_nameLab     = nullptr;
+  QLineEdit *m_nameEdit = nullptr;
+  QWidget *m_head       = nullptr;
+  QListWidget *m_list   = nullptr;
+  QWidget *m_board      = nullptr;
   std::function<ColorModel()> m_current;
   std::function<void(const ColorModel &)> m_pick;
+  std::function<void(const ColorModel &)> m_addStyle;
 
-  QRect cellRect(int i) const {
-    const QRect area = contentsRect().adjusted(kGap, kGap, -kGap, -kGap);
-    if (area.width() <= 0 || area.height() <= 0) return QRect();
-    const int r = i / kCols;
-    const int c = i % kCols;
-    const int cw = (area.width() - kGap * (kCols - 1)) / kCols;
-    const int ch = (area.height() - kGap * (kRows - 1)) / kRows;
-    if (cw <= 0 || ch <= 0) return QRect();
-    return QRect(area.x() + c * (cw + kGap), area.y() + r * (ch + kGap), cw,
-                 ch);
+  class Board final : public QWidget {
+    ColorCollectorGrid *m_p;
+    QRect cellRect(int i) const {
+      const QRect area = contentsRect().adjusted(kGap, kGap, -kGap, -kGap);
+      if (area.width() <= 0 || area.height() <= 0) return QRect();
+      const int r  = i / kCols;
+      const int c  = i % kCols;
+      const int cw = (area.width() - kGap * (kCols - 1)) / kCols;
+      const int ch = (area.height() - kGap * (kRows - 1)) / kRows;
+      if (cw <= 0 || ch <= 0) return QRect();
+      return QRect(area.x() + c * (cw + kGap), area.y() + r * (ch + kGap), cw,
+                   ch);
+    }
+    int hit(const QPoint &p) const {
+      for (int i = 0; i < kCount; ++i)
+        if (cellRect(i).contains(p)) return i;
+      return -1;
+    }
+
+  protected:
+    void paintEvent(QPaintEvent *) override {
+      QPainter p(this);
+      p.fillRect(rect(), palette().window());
+      for (int i = 0; i < kCount; ++i) {
+        const QRect r = cellRect(i);
+        if (!r.isValid()) continue;
+        if (m_p->m_filled[m_p->m_colorSet][i]) {
+          const TPixel32 pix = m_p->m_slots[m_p->m_colorSet][i].getTPixel();
+          p.fillRect(r, QColor(pix.r, pix.g, pix.b, pix.m));
+        } else {
+          p.fillRect(r, palette().mid());
+        }
+        p.setPen(QPen(palette().mid(), 1));
+        p.drawRect(r.adjusted(0, 0, -1, -1));
+      }
+    }
+    void mousePressEvent(QMouseEvent *e) override {
+      const int i = hit(e->pos());
+      if (i < 0 || e->button() != Qt::LeftButton) {
+        QWidget::mousePressEvent(e);
+        return;
+      }
+      if (e->modifiers() & Qt::AltModifier) {
+        m_p->collectAt(i);
+        e->accept();
+        return;
+      }
+      if (m_p->m_filled[m_p->m_colorSet][i] && m_p->m_pick)
+        m_p->m_pick(m_p->m_slots[m_p->m_colorSet][i]);
+      e->accept();
+    }
+    void contextMenuEvent(QContextMenuEvent *e) override {
+      const int i = hit(e->pos());
+      if (i < 0 || !m_p->m_filled[m_p->m_colorSet][i]) {
+        QWidget::contextMenuEvent(e);
+        return;
+      }
+      QMenu menu(this);
+      QAction *addStyle =
+          fillColorOutMenu(menu, m_p->colorSetNames());
+      QAction *chosen = menu.exec(e->globalPos());
+      if (chosen && chosen->property("sendColorSet").toBool())
+        m_p->appendTo(chosen->data().toInt(),
+                      m_p->m_slots[m_p->m_colorSet][i]);
+      else if (chosen == addStyle && m_p->m_addStyle)
+        m_p->m_addStyle(m_p->m_slots[m_p->m_colorSet][i]);
+    }
+    bool event(QEvent *e) override {
+      if (e->type() == QEvent::ToolTip) {
+        QHelpEvent *he = static_cast<QHelpEvent *>(e);
+        const int i    = hit(he->pos());
+        if (i >= 0)
+          QToolTip::showText(he->globalPos(),
+                             m_p->m_filled[m_p->m_colorSet][i] ? tr("Apply")
+                                                           : tr("Collect"),
+                             this);
+        else
+          QToolTip::hideText();
+        return true;
+      }
+      return QWidget::event(e);
+    }
+
+  public:
+    explicit Board(ColorCollectorGrid *owner) : QWidget(owner), m_p(owner) {
+      setMinimumSize(0, 0);
+      setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+      setMouseTracking(true);
+    }
+    int rightPad() const {
+      const QRect last = cellRect(kCount - 1);
+      if (!last.isValid()) return kGap;
+      return std::max(0, width() - last.right() - 1);
+    }
+  };
+
+  QString defaultName(int set) const {
+    return tr("Color set %1").arg(set + 1);
   }
 
-  int hit(const QPoint &p) const {
-    for (int i = 0; i < kCount; ++i)
-      if (cellRect(i).contains(p)) return i;
-    return -1;
-  }
-
-  void persist() {
+  QString serializeSet(int set) const {
     QStringList parts;
     parts.reserve(kCount);
     for (int i = 0; i < kCount; ++i) {
-      if (!m_filled[i]) {
+      if (!m_filled[set][i]) {
         parts.append(QStringLiteral("-"));
         continue;
       }
-      const TPixel32 p = m_slots[i].getTPixel();
+      const TPixel32 p = m_slots[set][i].getTPixel();
       parts.append(QColor(p.r, p.g, p.b, p.m).name(QColor::HexArgb));
     }
-    StyleEditorColorCollector = parts.join(QLatin1Char(',')).toStdString();
+    return parts.join(QLatin1Char(','));
   }
 
-  void restore() {
-    const QString raw =
-        QString::fromStdString((std::string)StyleEditorColorCollector);
+  void restoreSet(int set, const QString &raw) {
     const QStringList parts = raw.split(QLatin1Char(','));
     for (int i = 0; i < kCount; ++i) {
-      m_filled[i] = false;
-      m_slots[i]  = ColorModel();
+      m_filled[set][i] = false;
+      m_slots[set][i]  = ColorModel();
       if (i >= parts.size()) continue;
       const QString s = parts[i].trimmed();
       if (s.isEmpty() || s == QLatin1String("-")) continue;
       const QColor qc(s);
-      if (!qc.isValid()) continue;
-      m_slots[i].setTPixel(TPixel32((UCHAR)qc.red(), (UCHAR)qc.green(),
-                                    (UCHAR)qc.blue(), (UCHAR)qc.alpha()));
-      m_filled[i] = true;
+      if (!qc.isValid() || qc.alpha() == 0) continue;
+      m_slots[set][i].setTPixel(TPixel32((UCHAR)qc.red(), (UCHAR)qc.green(),
+                                         (UCHAR)qc.blue(), (UCHAR)qc.alpha()));
+      m_filled[set][i] = true;
     }
   }
 
-protected:
-  void paintEvent(QPaintEvent *) override {
-    QPainter p(this);
-    p.fillRect(rect(), palette().window());
-    for (int i = 0; i < kCount; ++i) {
-      const QRect r = cellRect(i);
-      if (!r.isValid()) continue;
-      if (m_filled[i]) {
-        const TPixel32 pix = m_slots[i].getTPixel();
-        p.fillRect(r, QColor(pix.r, pix.g, pix.b, pix.m));
-      } else {
-        p.fillRect(r, palette().mid());
-      }
-      p.setPen(QPen(palette().mid(), 1));
-      p.drawRect(r.adjusted(0, 0, -1, -1));
+  void persist() {
+    QStringList sets;
+    QStringList names;
+    sets.reserve(kColorSets);
+    names.reserve(kColorSets);
+    for (int s = 0; s < kColorSets; ++s) {
+      sets.append(serializeSet(s));
+      names.append(m_names[s]);
     }
+    StyleEditorColorSets     = sets.join(QLatin1Char('\n')).toStdString();
+    StyleEditorColorSetNames = names.join(QLatin1Char('\n')).toStdString();
+    StyleEditorColorSet      = m_colorSet;
+  }
+
+  void restore() {
+    for (int s = 0; s < kColorSets; ++s) {
+      m_names[s] = defaultName(s);
+      for (int i = 0; i < kCount; ++i) {
+        m_filled[s][i] = false;
+        m_slots[s][i]  = ColorModel();
+      }
+    }
+    const QString setsRaw =
+        QString::fromStdString((std::string)StyleEditorColorSets);
+    if (!setsRaw.isEmpty()) {
+      const QStringList sets = setsRaw.split(QLatin1Char('\n'));
+      for (int s = 0; s < kColorSets && s < sets.size(); ++s)
+        restoreSet(s, sets[s]);
+    }
+    const QString namesRaw =
+        QString::fromStdString((std::string)StyleEditorColorSetNames);
+    if (!namesRaw.isEmpty()) {
+      const QStringList names = namesRaw.split(QLatin1Char('\n'));
+      for (int s = 0; s < kColorSets && s < names.size(); ++s) {
+        const QString n = names[s].trimmed();
+        if (!n.isEmpty()) m_names[s] = n;
+      }
+    }
+    m_colorSet = qBound(0, (int)StyleEditorColorSet, kColorSets - 1);
+  }
+
+  void refreshHeader() {
+    if (m_nameLab) m_nameLab->setText(m_names[m_colorSet]);
+    if (m_list) {
+      const bool blocked = m_list->blockSignals(true);
+      m_list->setCurrentRow(m_colorSet);
+      m_list->blockSignals(blocked);
+    }
+    if (m_board) m_board->update();
+  }
+
+  void setListOpen(bool on) {
+    if (m_list) m_list->setVisible(on);
+    if (m_toggle)
+      m_toggle->setArrowType(on ? Qt::DownArrow : Qt::RightArrow);
+  }
+
+  void syncHeaderPad() {
+    if (!m_head || !m_board) return;
+    auto *headLay = qobject_cast<QHBoxLayout *>(m_head->layout());
+    if (!headLay) return;
+    const int pad = static_cast<Board *>(m_board)->rightPad();
+    if (headLay->contentsMargins().right() != pad)
+      headLay->setContentsMargins(0, 0, pad, 0);
+  }
+
+  void startRename() {
+    if (!m_nameEdit || !m_nameLab) return;
+    setListOpen(false);
+    m_nameEdit->setText(m_names[m_colorSet]);
+    syncHeaderPad();
+    m_nameLab->hide();
+    m_nameEdit->show();
+    m_nameEdit->setFocus();
+    m_nameEdit->selectAll();
+  }
+
+  void finishRename() {
+    if (!m_nameEdit || m_nameEdit->isHidden()) return;
+    setColorSetName(m_colorSet, m_nameEdit->text());
+    m_nameEdit->hide();
+    m_nameLab->show();
+    refreshHeader();
   }
 
   void collectAt(int i) {
     if (!m_current) return;
-    m_slots[i]  = m_current();
-    m_filled[i] = true;
+    m_slots[m_colorSet][i]  = m_current();
+    m_filled[m_colorSet][i] = true;
     persist();
-    update();
+    if (m_board) m_board->update();
   }
 
-  void mousePressEvent(QMouseEvent *e) override {
-    const int i = hit(e->pos());
-    if (i < 0 || e->button() != Qt::LeftButton) {
-      QWidget::mousePressEvent(e);
-      return;
-    }
-    if (e->modifiers() & Qt::AltModifier) {
-      collectAt(i);
-      e->accept();
-      return;
-    }
-    if (m_filled[i] && m_pick) m_pick(m_slots[i]);
-    e->accept();
-  }
-
-  bool event(QEvent *e) override {
-    if (e->type() == QEvent::ToolTip) {
-      QHelpEvent *he = static_cast<QHelpEvent *>(e);
-      const int i    = hit(he->pos());
-      if (i >= 0)
-        QToolTip::showText(
-            he->globalPos(),
-            m_filled[i] ? tr("Apply") : tr("Collect"), this);
-      else
-        QToolTip::hideText();
+  bool eventFilter(QObject *watched, QEvent *event) override {
+    if (watched == m_nameLab && event->type() == QEvent::MouseButtonDblClick) {
+      startRename();
       return true;
     }
-    return QWidget::event(e);
+    return QWidget::eventFilter(watched, event);
   }
 
 public:
   explicit ColorCollectorGrid(QWidget *parent) : QWidget(parent) {
     setMinimumSize(0, 0);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    setMouseTracking(true);
-    for (int i = 0; i < kCount; ++i) m_filled[i] = false;
+    setFocusPolicy(Qt::ClickFocus);
     restore();
+
+    m_toggle = new QToolButton(this);
+    m_toggle->setAutoRaise(true);
+    m_toggle->setFocusPolicy(Qt::NoFocus);
+    m_toggle->setFixedSize(16, 16);
+    m_toggle->setArrowType(Qt::RightArrow);
+    m_toggle->setToolTip(tr("Choose a color set"));
+    connect(m_toggle, &QToolButton::clicked, this, [this]() {
+      setListOpen(!m_list || !m_list->isVisible());
+    });
+
+    m_nameLab = new QLabel(m_names[m_colorSet], this);
+    m_nameLab->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+    m_nameLab->setMinimumWidth(0);
+    m_nameLab->setToolTip(tr("Double-click to rename"));
+    m_nameLab->installEventFilter(this);
+
+    m_list = new QListWidget(this);
+    m_list->setFocusPolicy(Qt::NoFocus);
+    m_list->setFrameShape(QFrame::StyledPanel);
+    m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_list->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_list->setFixedHeight(kColorSets * 18);
+    for (int b = 0; b < kColorSets; ++b) m_list->addItem(m_names[b]);
+    m_list->setCurrentRow(m_colorSet);
+    m_list->hide();
+    connect(m_list, &QListWidget::itemClicked, this, [this](QListWidgetItem *) {
+      setColorSet(m_list->currentRow());
+      setListOpen(false);
+      setFocus(Qt::OtherFocusReason);
+    });
+
+    m_board = new Board(this);
+
+    m_head = new QWidget(this);
+    m_head->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    const int headH = std::max(16, m_nameLab->sizeHint().height());
+    m_head->setFixedHeight(headH);
+
+    m_nameEdit = new QLineEdit(m_head);
+    m_nameEdit->setObjectName("ColorSetNameEdit");
+    m_nameEdit->setStyleSheet(
+        QStringLiteral("#ColorSetNameEdit { max-width: 16777215px; }"));
+    m_nameEdit->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_nameEdit->setMinimumWidth(0);
+    m_nameEdit->hide();
+    connect(m_nameEdit, &QLineEdit::editingFinished, this,
+            [this]() { finishRename(); });
+
+    QHBoxLayout *headLay = new QHBoxLayout(m_head);
+    headLay->setContentsMargins(0, 0, 0, 0);
+    headLay->setSpacing(4);
+    headLay->addWidget(m_toggle, 0, Qt::AlignVCenter);
+    headLay->addWidget(m_nameLab, 1, Qt::AlignVCenter);
+    headLay->addWidget(m_nameEdit, 1, Qt::AlignVCenter);
+
+    QVBoxLayout *lay = new QVBoxLayout(this);
+    lay->setContentsMargins(0, 0, 0, 0);
+    lay->setSpacing(2);
+    lay->addWidget(m_head, 0);
+    lay->addWidget(m_list, 0);
+    lay->addWidget(m_board, 1);
   }
 
+protected:
+  void resizeEvent(QResizeEvent *e) override {
+    QWidget::resizeEvent(e);
+    syncHeaderPad();
+  }
+  void showEvent(QShowEvent *e) override {
+    QWidget::showEvent(e);
+    syncHeaderPad();
+  }
+
+public:
   void setCurrent(std::function<ColorModel()> cb) { m_current = std::move(cb); }
   void setPick(std::function<void(const ColorModel &)> cb) {
     m_pick = std::move(cb);
   }
-  void append(const ColorModel &c) {
+  void setAddStyle(std::function<void(const ColorModel &)> cb) {
+    m_addStyle = std::move(cb);
+  }
+
+  QStringList colorSetNames() const {
+    QStringList names;
+    names.reserve(kColorSets);
+    for (int b = 0; b < kColorSets; ++b) names.append(m_names[b]);
+    return names;
+  }
+
+  void setColorSet(int set) {
+    set = qBound(0, set, kColorSets - 1);
+    if (set == m_colorSet) {
+      refreshHeader();
+      return;
+    }
+    m_colorSet           = set;
+    StyleEditorColorSet  = m_colorSet;
+    if (m_nameEdit && !m_nameEdit->isHidden()) finishRename();
+    refreshHeader();
+  }
+
+  void setColorSetName(int set, const QString &name) {
+    if (set < 0 || set >= kColorSets) return;
+    QString n = name.trimmed();
+    if (n.isEmpty()) n = defaultName(set);
+    if (m_names[set] == n) return;
+    m_names[set] = n;
+    if (m_list && set < m_list->count()) m_list->item(set)->setText(n);
+    persist();
+    refreshHeader();
+  }
+
+  void appendTo(int set, const ColorModel &c) {
+    if (set < 0 || set >= kColorSets) return;
     for (int i = 0; i < kCount; ++i) {
-      if (m_filled[i]) continue;
-      m_slots[i]  = c;
-      m_filled[i] = true;
+      if (m_filled[set][i]) continue;
+      m_slots[set][i]  = c;
+      m_filled[set][i] = true;
       persist();
-      update();
+      if (set == m_colorSet && m_board) m_board->update();
       return;
     }
   }
+
+  void append(const ColorModel &c) { appendTo(m_colorSet, c); }
 };
+
+static QAction *fillColorOutMenu(QMenu &menu, const QStringList &names) {
+  QMenu *send = menu.addMenu(QObject::tr("Send to Color Collector"));
+  for (int b = 0; b < ColorCollectorGrid::kColorSets; ++b) {
+    const QString label =
+        (b < names.size() && !names[b].isEmpty())
+            ? names[b]
+            : QObject::tr("Color set %1").arg(b + 1);
+    QAction *a = send->addAction(label);
+    a->setData(b);
+    a->setProperty("sendColorSet", true);
+  }
+  return menu.addAction(QObject::tr("Add as new style"));
+}
+
+static bool runColorOutAction(
+    QAction *chosen, const ColorModel &c,
+    const std::function<void(const ColorModel &, int)> &collectTo,
+    const std::function<void(const ColorModel &)> &addStyle,
+    QAction *addStyleAct) {
+  if (!chosen) return false;
+  if (chosen->property("sendColorSet").toBool()) {
+    if (collectTo) collectTo(c, chosen->data().toInt());
+    return true;
+  }
+  if (chosen == addStyleAct) {
+    if (addStyle) addStyle(c);
+    return true;
+  }
+  return false;
+}
+
+static QStringList colorSetLabels(const std::function<QStringList()> &fn) {
+  return fn ? fn() : QStringList();
+}
 
 class ColorHistoryGrid final : public QWidget {
   static const int kCols  = 12;
@@ -2632,6 +2929,10 @@ class ColorHistoryGrid final : public QWidget {
   ColorModel m_slots[kCount];
   int m_used = 0;
   std::function<void(const ColorModel &)> m_pick;
+  std::function<void(const ColorModel &)> m_collect;
+  std::function<void(const ColorModel &, int)> m_collectTo;
+  std::function<void(const ColorModel &)> m_addStyle;
+  std::function<QStringList()> m_colorSetNames;
 
   QRect cellRect(int i) const {
     const QRect area = contentsRect().adjusted(kGap, kGap, -kGap, -kGap);
@@ -2700,8 +3001,25 @@ protected:
       QWidget::mousePressEvent(e);
       return;
     }
-    if (i < m_used && m_pick) m_pick(m_slots[i]);
+    if (i < m_used) {
+      if ((e->modifiers() & Qt::ControlModifier) && m_collect)
+        m_collect(m_slots[i]);
+      else if (m_pick)
+        m_pick(m_slots[i]);
+    }
     e->accept();
+  }
+
+  void contextMenuEvent(QContextMenuEvent *e) override {
+    const int i = hit(e->pos());
+    if (i < 0 || i >= m_used) {
+      QWidget::contextMenuEvent(e);
+      return;
+    }
+    QMenu menu(this);
+    QAction *addStyle = fillColorOutMenu(menu, colorSetLabels(m_colorSetNames));
+    runColorOutAction(menu.exec(e->globalPos()), m_slots[i], m_collectTo,
+                      m_addStyle, addStyle);
   }
 
   bool event(QEvent *e) override {
@@ -2739,6 +3057,18 @@ public:
   void setPick(std::function<void(const ColorModel &)> cb) {
     m_pick = std::move(cb);
   }
+  void setCollect(std::function<void(const ColorModel &)> cb) {
+    m_collect = std::move(cb);
+  }
+  void setCollectTo(std::function<void(const ColorModel &, int)> cb) {
+    m_collectTo = std::move(cb);
+  }
+  void setAddStyle(std::function<void(const ColorModel &)> cb) {
+    m_addStyle = std::move(cb);
+  }
+  void setColorSetNames(std::function<QStringList()> cb) {
+    m_colorSetNames = std::move(cb);
+  }
 };
 
 class ColorHarmonyPane final : public QWidget {
@@ -2746,7 +3076,14 @@ class ColorHarmonyPane final : public QWidget {
   QButtonGroup *m_cuts;
   QToolButton *m_cutBtn[4];
   ColorModel m_src;
+  bool m_hold   = false;
+  bool m_hasSrc = false;
   std::function<void(const ColorModel &)> m_pick;
+  std::function<void(const ColorModel &)> m_collect;
+  std::function<void(const ColorModel &, int)> m_collectTo;
+  std::function<void(const ColorModel &)> m_addStyle;
+  std::function<QStringList()> m_colorSetNames;
+  std::function<ColorModel()> m_current;
   std::function<void()> m_onCut;
 
   HarmonyCut cut() const {
@@ -2766,6 +3103,17 @@ class ColorHarmonyPane final : public QWidget {
     for (int i = 0; i < n; ++i)
       if (chipRect(i, n).contains(p)) return i;
     return -1;
+  }
+
+  ColorModel chipColor(int i) const {
+    int hues[4];
+    fillHarmonyHues(m_src.getValue(eHue), cut(), hues);
+    return colorAtHue(m_src, hues[i]);
+  }
+
+  void setHold(bool hold) {
+    m_hold                = hold;
+    StyleEditorHarmonyHold = hold ? 1 : 0;
   }
 
 protected:
@@ -2792,12 +3140,42 @@ protected:
       QWidget::mousePressEvent(e);
       return;
     }
-    if (m_pick) {
-      int hues[4];
-      fillHarmonyHues(m_src.getValue(eHue), cut(), hues);
-      m_pick(colorAtHue(m_src, hues[i]));
-    }
+    const ColorModel chosen = chipColor(i);
+    if ((e->modifiers() & Qt::ControlModifier) && m_collect)
+      m_collect(chosen);
+    else if (m_pick)
+      m_pick(chosen);
     e->accept();
+  }
+
+  void contextMenuEvent(QContextMenuEvent *e) override {
+    const int i = hit(e->pos());
+    QMenu menu(this);
+    QAction *dynamicAct = menu.addAction(tr("Dynamic"));
+    dynamicAct->setCheckable(true);
+    dynamicAct->setChecked(!m_hold);
+    QAction *holdAct = menu.addAction(tr("Hold"));
+    holdAct->setCheckable(true);
+    holdAct->setChecked(m_hold);
+    QAction *addStyle = nullptr;
+    if (i >= 0) {
+      menu.addSeparator();
+      addStyle = fillColorOutMenu(menu, colorSetLabels(m_colorSetNames));
+    }
+    QAction *chosen = menu.exec(e->globalPos());
+    if (!chosen) return;
+    if (chosen == dynamicAct) {
+      setHold(false);
+      if (m_current) setFrom(m_current());
+      return;
+    }
+    if (chosen == holdAct) {
+      setHold(true);
+      return;
+    }
+    if (i >= 0)
+      runColorOutAction(chosen, chipColor(i), m_collectTo, m_addStyle,
+                        addStyle);
   }
 
   bool event(QEvent *e) override {
@@ -2818,6 +3196,7 @@ public:
     setMinimumSize(0, 0);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setMouseTracking(true);
+    m_hold = StyleEditorHarmonyHold != 0;
     m_cuts = new QButtonGroup(this);
     m_cuts->setExclusive(true);
     const char *icons[4] = {"colorpicker_harmony_none",
@@ -2854,13 +3233,29 @@ public:
     for (int i = 0; i < 4; ++i) m_cutBtn[i]->move(4 + i * 22, 3);
   }
 
+  // Hold keeps the chip set; Apply still updates the current color.
   void setFrom(const ColorModel &color) {
-    m_src = color;
+    if (m_hold && m_hasSrc) return;
+    m_src    = color;
+    m_hasSrc = true;
     update();
   }
   void setPick(std::function<void(const ColorModel &)> cb) {
     m_pick = std::move(cb);
   }
+  void setCollect(std::function<void(const ColorModel &)> cb) {
+    m_collect = std::move(cb);
+  }
+  void setCollectTo(std::function<void(const ColorModel &, int)> cb) {
+    m_collectTo = std::move(cb);
+  }
+  void setAddStyle(std::function<void(const ColorModel &)> cb) {
+    m_addStyle = std::move(cb);
+  }
+  void setColorSetNames(std::function<QStringList()> cb) {
+    m_colorSetNames = std::move(cb);
+  }
+  void setCurrent(std::function<ColorModel()> cb) { m_current = std::move(cb); }
   void setOnCut(std::function<void()> cb) { m_onCut = std::move(cb); }
 };
 
@@ -2876,6 +3271,9 @@ class ColorShadesPane final : public QWidget {
   bool m_hasB = false;
   std::function<void(const ColorModel &)> m_pick;
   std::function<void(const ColorModel &)> m_collect;
+  std::function<void(const ColorModel &, int)> m_collectTo;
+  std::function<void(const ColorModel &)> m_addStyle;
+  std::function<QStringList()> m_colorSetNames;
 
   enum Row { RowValue = 0, RowTemp = 1, RowGray = 2, RowRamp = 3 };
 
@@ -2936,6 +3334,26 @@ class ColorShadesPane final : public QWidget {
     if (i == 0) return m_hasA;
     if (i == kCols - 1) return m_hasB;
     return m_hasA && m_hasB;
+  }
+
+  bool colorFromHit(const Hit &h, ColorModel &out) const {
+    if (h.row == RowValue) {
+      out = valueColor(h.i);
+      return true;
+    }
+    if (h.row == RowTemp) {
+      out = tempColor(h.i);
+      return true;
+    }
+    if (h.row == RowGray) {
+      out = grayColor(h.i);
+      return true;
+    }
+    if (h.row == RowRamp && rampFilled(h.i)) {
+      out = rampColor(h.i);
+      return true;
+    }
+    return false;
   }
 
   int closestValueChip() const {
@@ -3175,18 +3593,31 @@ protected:
       e->accept();
       return;
     }
-    if (!m_hasA && !m_hasB) {
+    const Hit h = hit(e->pos());
+    ColorModel c;
+    const bool hasColor = colorFromHit(h, c);
+    if (!m_hasA && !m_hasB && !hasColor) {
       QWidget::contextMenuEvent(e);
       return;
     }
     QMenu menu(this);
-    QAction *resetRamp = menu.addAction(tr("Reset ramp"));
-    if (menu.exec(e->globalPos()) == resetRamp) {
+    QAction *resetRamp = nullptr;
+    if (m_hasA || m_hasB) resetRamp = menu.addAction(tr("Reset ramp"));
+    QAction *addStyle = nullptr;
+    if (hasColor) {
+      if (resetRamp) menu.addSeparator();
+      addStyle = fillColorOutMenu(menu, colorSetLabels(m_colorSetNames));
+    }
+    QAction *chosen = menu.exec(e->globalPos());
+    if (chosen && chosen == resetRamp) {
       m_hasA = false;
       m_hasB = false;
       persistRamp();
       update();
+      return;
     }
+    if (hasColor)
+      runColorOutAction(chosen, c, m_collectTo, m_addStyle, addStyle);
   }
 
 public:
@@ -3207,6 +3638,15 @@ public:
   void setCollect(std::function<void(const ColorModel &)> cb) {
     m_collect = std::move(cb);
   }
+  void setCollectTo(std::function<void(const ColorModel &, int)> cb) {
+    m_collectTo = std::move(cb);
+  }
+  void setAddStyle(std::function<void(const ColorModel &)> cb) {
+    m_addStyle = std::move(cb);
+  }
+  void setColorSetNames(std::function<QStringList()> cb) {
+    m_colorSetNames = std::move(cb);
+  }
 };
 
 class ColorNeighborsPane final : public QWidget {
@@ -3214,6 +3654,9 @@ class ColorNeighborsPane final : public QWidget {
   ColorModel m_src;
   std::function<void(const ColorModel &)> m_pick;
   std::function<void(const ColorModel &)> m_collect;
+  std::function<void(const ColorModel &, int)> m_collectTo;
+  std::function<void(const ColorModel &)> m_addStyle;
+  std::function<QStringList()> m_colorSetNames;
   bool m_dense          = false;
   int m_cols            = 9;
   int m_rows            = 5;
@@ -3456,6 +3899,7 @@ class ColorNeighborsPane final : public QWidget {
     }
 
     void contextMenuEvent(QContextMenuEvent *e) override {
+      const Hit h = hit(e->pos());
       QMenu menu(this);
       QAction *compactAct = menu.addAction(tr("Compact grid"));
       compactAct->setCheckable(true);
@@ -3463,11 +3907,22 @@ class ColorNeighborsPane final : public QWidget {
       QAction *largeAct = menu.addAction(tr("Large grid"));
       largeAct->setCheckable(true);
       largeAct->setChecked(m_p->m_dense);
+      QAction *addStyle = nullptr;
+      ColorModel c;
+      const bool hasColor = h.row >= 0;
+      if (hasColor) {
+        c = m_p->colorAt(h.row, h.col);
+        menu.addSeparator();
+        addStyle = fillColorOutMenu(menu, colorSetLabels(m_p->m_colorSetNames));
+      }
       QAction *chosen = menu.exec(e->globalPos());
       if (chosen == compactAct)
         m_p->setDense(false);
       else if (chosen == largeAct)
         m_p->setDense(true);
+      else if (hasColor)
+        runColorOutAction(chosen, c, m_p->m_collectTo, m_p->m_addStyle,
+                          addStyle);
     }
 
   public:
@@ -3558,6 +4013,15 @@ public:
   void setCollect(std::function<void(const ColorModel &)> cb) {
     m_collect = std::move(cb);
   }
+  void setCollectTo(std::function<void(const ColorModel &, int)> cb) {
+    m_collectTo = std::move(cb);
+  }
+  void setAddStyle(std::function<void(const ColorModel &)> cb) {
+    m_addStyle = std::move(cb);
+  }
+  void setColorSetNames(std::function<QStringList()> cb) {
+    m_colorSetNames = std::move(cb);
+  }
 };
 
 class ColorBlendPane final : public QWidget {
@@ -3567,6 +4031,9 @@ class ColorBlendPane final : public QWidget {
   bool m_has[4] = {false, false, false, false};
   std::function<void(const ColorModel &)> m_pick;
   std::function<void(const ColorModel &)> m_collect;
+  std::function<void(const ColorModel &, int)> m_collectTo;
+  std::function<void(const ColorModel &)> m_addStyle;
+  std::function<QStringList()> m_colorSetNames;
   bool m_dense = false;
   int m_cols   = 9;
   int m_rows   = 7;
@@ -3792,6 +4259,14 @@ protected:
     if (isCorner(h.row, h.col) && m_has[cornerId(h.row, h.col)])
       resetOne = menu.addAction(tr("Reset this corner"));
     QAction *resetAll = menu.addAction(tr("Reset all corners"));
+    QAction *addStyle = nullptr;
+    ColorModel c;
+    const bool hasColor = h.row >= 0;
+    if (hasColor) {
+      c = colorAt(h.row, h.col);
+      menu.addSeparator();
+      addStyle = fillColorOutMenu(menu, colorSetLabels(m_colorSetNames));
+    }
     QAction *chosen   = menu.exec(e->globalPos());
     if (chosen == compactAct)
       setDense(false);
@@ -3801,6 +4276,8 @@ protected:
       resetCorner(cornerId(h.row, h.col));
     else if (chosen == resetAll)
       resetAllCorners();
+    else if (hasColor)
+      runColorOutAction(chosen, c, m_collectTo, m_addStyle, addStyle);
   }
 
 public:
@@ -3821,6 +4298,15 @@ public:
   }
   void setCollect(std::function<void(const ColorModel &)> cb) {
     m_collect = std::move(cb);
+  }
+  void setCollectTo(std::function<void(const ColorModel &, int)> cb) {
+    m_collectTo = std::move(cb);
+  }
+  void setAddStyle(std::function<void(const ColorModel &)> cb) {
+    m_addStyle = std::move(cb);
+  }
+  void setColorSetNames(std::function<QStringList()> cb) {
+    m_colorSetNames = std::move(cb);
   }
 };
 
@@ -3865,6 +4351,10 @@ class ColorMixerPane final : public QWidget {
   QToolButton *m_paperBtn       = nullptr;
   std::function<ColorModel()> m_current;
   std::function<void(const ColorModel &)> m_pick;
+  std::function<void(const ColorModel &)> m_collect;
+  std::function<void(const ColorModel &, int)> m_collectTo;
+  std::function<void(const ColorModel &)> m_addStyle;
+  std::function<QStringList()> m_colorSetNames;
 
   QPoint toImg(const QPoint &w) const {
     const double z = m_zoom < 0.01 ? 0.01 : m_zoom;
@@ -4596,15 +5086,19 @@ class ColorMixerPane final : public QWidget {
     if (prev != c) dabAt(prev, c);
   }
 
-  void pickAt(const QPoint &p) {
+  bool sampleAt(const QPoint &p, ColorModel &out) {
     ensureImage();
-    if (!m_pick || !m_img.rect().contains(p)) return;
+    if (!m_img.rect().contains(p)) return false;
     const QRgb pix = m_img.pixel(p);
-    if (qAlpha(pix) < 16) return;
+    if (qAlpha(pix) < 16) return false;
+    out.setTPixel(TPixel32((UCHAR)qRed(pix), (UCHAR)qGreen(pix),
+                           (UCHAR)qBlue(pix), (UCHAR)qAlpha(pix)));
+    return true;
+  }
+
+  void pickAt(const QPoint &p) {
     ColorModel c;
-    c.setTPixel(TPixel32((UCHAR)qRed(pix), (UCHAR)qGreen(pix),
-                         (UCHAR)qBlue(pix), (UCHAR)qAlpha(pix)));
-    m_pick(c);
+    if (m_pick && sampleAt(p, c)) m_pick(c);
   }
 
   static bool isViewerPanShortcut(const QKeyEvent *ke) {
@@ -4855,6 +5349,11 @@ protected:
       return;
     }
     if (m_mouseButton != Qt::LeftButton) return;
+    if ((mods & Qt::ControlModifier) && m_collect) {
+      ColorModel c;
+      if (sampleAt(toImg(pos), c)) m_collect(c);
+      return;
+    }
     m_down          = true;
     m_moved         = false;
     m_paint         = (mods & Qt::AltModifier);
@@ -4980,6 +5479,19 @@ protected:
     }
     pointerRelease(e->pos(), e->button());
     e->accept();
+  }
+
+  void contextMenuEvent(QContextMenuEvent *e) override {
+    if (hitsBar(e->pos())) {
+      QWidget::contextMenuEvent(e);
+      return;
+    }
+    ColorModel c;
+    if (!sampleAt(toImg(e->pos()), c)) return;
+    QMenu menu(this);
+    QAction *addStyle = fillColorOutMenu(menu, colorSetLabels(m_colorSetNames));
+    runColorOutAction(menu.exec(e->globalPos()), c, m_collectTo, m_addStyle,
+                      addStyle);
   }
 
   void keyPressEvent(QKeyEvent *e) override {
@@ -5205,6 +5717,18 @@ public:
   void setCurrent(std::function<ColorModel()> cb) { m_current = std::move(cb); }
   void setPick(std::function<void(const ColorModel &)> cb) {
     m_pick = std::move(cb);
+  }
+  void setCollect(std::function<void(const ColorModel &)> cb) {
+    m_collect = std::move(cb);
+  }
+  void setCollectTo(std::function<void(const ColorModel &, int)> cb) {
+    m_collectTo = std::move(cb);
+  }
+  void setAddStyle(std::function<void(const ColorModel &)> cb) {
+    m_addStyle = std::move(cb);
+  }
+  void setColorSetNames(std::function<QStringList()> cb) {
+    m_colorSetNames = std::move(cb);
   }
 };
 
@@ -5644,6 +6168,8 @@ PlainColorPage::PlainColorPage(QWidget *parent)
       for (int i = 0; i < 7; ++i)
         if (m_channelControls[i]) m_channelControls[i]->update();
     });
+    static_cast<ColorHarmonyPane *>(m_harmonyPane)->setCurrent(
+        [this]() { return m_color; });
 
     QFrame *shadesFrame = new QFrame(this);
     shadesFrame->setObjectName("PlainColorPageParts");
@@ -5666,8 +6192,34 @@ PlainColorPage::PlainColorPage(QWidget *parent)
       if (m_collectorGrid)
         static_cast<ColorCollectorGrid *>(m_collectorGrid)->append(c);
     };
-    static_cast<ColorShadesPane *>(m_shadesPane)->setPick(applyPickedColor);
-    static_cast<ColorShadesPane *>(m_shadesPane)->setCollect(collectColor);
+    auto collectTo = [this](const ColorModel &c, int set) {
+      if (!m_collectorGrid) return;
+      static_cast<ColorCollectorGrid *>(m_collectorGrid)->appendTo(set, c);
+    };
+    auto colorSetNames = [this]() -> QStringList {
+      if (!m_collectorGrid) return QStringList();
+      return static_cast<ColorCollectorGrid *>(m_collectorGrid)->colorSetNames();
+    };
+    auto addStyle = [this](const ColorModel &c) {
+      emit addPaletteStyleRequested(c);
+    };
+    static_cast<ColorCollectorGrid *>(m_collectorGrid)->setAddStyle(addStyle);
+    auto *history = static_cast<ColorHistoryGrid *>(m_historyGrid);
+    history->setCollect(collectColor);
+    history->setCollectTo(collectTo);
+    history->setAddStyle(addStyle);
+    history->setColorSetNames(colorSetNames);
+    auto *harmony = static_cast<ColorHarmonyPane *>(m_harmonyPane);
+    harmony->setCollect(collectColor);
+    harmony->setCollectTo(collectTo);
+    harmony->setColorSetNames(colorSetNames);
+    harmony->setAddStyle(addStyle);
+    auto *shades = static_cast<ColorShadesPane *>(m_shadesPane);
+    shades->setPick(applyPickedColor);
+    shades->setCollect(collectColor);
+    shades->setCollectTo(collectTo);
+    shades->setAddStyle(addStyle);
+    shades->setColorSetNames(colorSetNames);
 
     QFrame *neighborsFrame = new QFrame(this);
     neighborsFrame->setObjectName("PlainColorPageParts");
@@ -5677,8 +6229,12 @@ PlainColorPage::PlainColorPage(QWidget *parent)
     neighborsLay->setSpacing(0);
     m_neighborsPane = new ColorNeighborsPane(neighborsFrame);
     neighborsLay->addWidget(m_neighborsPane, 1);
-    static_cast<ColorNeighborsPane *>(m_neighborsPane)->setPick(applyPickedColor);
-    static_cast<ColorNeighborsPane *>(m_neighborsPane)->setCollect(collectColor);
+    auto *neighbors = static_cast<ColorNeighborsPane *>(m_neighborsPane);
+    neighbors->setPick(applyPickedColor);
+    neighbors->setCollect(collectColor);
+    neighbors->setCollectTo(collectTo);
+    neighbors->setAddStyle(addStyle);
+    neighbors->setColorSetNames(colorSetNames);
 
     QFrame *blendFrame = new QFrame(this);
     blendFrame->setObjectName("PlainColorPageParts");
@@ -5688,8 +6244,12 @@ PlainColorPage::PlainColorPage(QWidget *parent)
     blendLay->setSpacing(0);
     m_blendPane = new ColorBlendPane(blendFrame);
     blendLay->addWidget(m_blendPane, 1);
-    static_cast<ColorBlendPane *>(m_blendPane)->setPick(applyPickedColor);
-    static_cast<ColorBlendPane *>(m_blendPane)->setCollect(collectColor);
+    auto *blend = static_cast<ColorBlendPane *>(m_blendPane);
+    blend->setPick(applyPickedColor);
+    blend->setCollect(collectColor);
+    blend->setCollectTo(collectTo);
+    blend->setAddStyle(addStyle);
+    blend->setColorSetNames(colorSetNames);
 
     QFrame *mixerFrame = new QFrame(this);
     mixerFrame->setObjectName("PlainColorPageParts");
@@ -5699,18 +6259,13 @@ PlainColorPage::PlainColorPage(QWidget *parent)
     mixerLay->setSpacing(0);
     m_mixerPane = new ColorMixerPane(mixerFrame);
     mixerLay->addWidget(m_mixerPane, 1);
-    static_cast<ColorMixerPane *>(m_mixerPane)
-        ->setCurrent([this]() { return m_color; });
-    static_cast<ColorMixerPane *>(m_mixerPane)
-        ->setPick([this](const ColorModel &c) {
-          if (!(m_color == c)) {
-            m_color = c;
-            updateControls();
-          }
-          if (m_signalEnabled) emit colorChanged(m_color, false);
-          if (m_historyGrid)
-            static_cast<ColorHistoryGrid *>(m_historyGrid)->push(m_color);
-        });
+    auto *mixer = static_cast<ColorMixerPane *>(m_mixerPane);
+    mixer->setCurrent([this]() { return m_color; });
+    mixer->setPick(applyPickedColor);
+    mixer->setCollect(collectColor);
+    mixer->setCollectTo(collectTo);
+    mixer->setAddStyle(addStyle);
+    mixer->setColorSetNames(colorSetNames);
 
     m_featureStack = new QStackedWidget(this);
     m_featureStack->addWidget(m_slidersContainer);
@@ -5892,11 +6447,6 @@ PlainColorPage::PlainColorPage(QWidget *parent)
   enableCtx(m_pickerFrame);
   enableCtx(m_colorFeaturesBar);
   enableCtx(m_slidersContainer);
-  if (m_collectorGrid) enableCtx(m_collectorGrid);
-  if (m_historyGrid) enableCtx(m_historyGrid);
-  if (m_harmonyPane) enableCtx(m_harmonyPane);
-  if (m_shadesPane) enableCtx(m_shadesPane);
-  if (m_mixerPane) enableCtx(m_mixerPane);
   enableCtx(m_hsvFrame);
   enableCtx(m_alphaFrame);
   enableCtx(m_rgbFrame);
@@ -7552,6 +8102,10 @@ StyleEditor::StyleEditor(PaletteController *paletteController, QWidget *parent)
   ret = ret && connect(m_plainColorPage,
                        SIGNAL(colorChanged(const ColorModel &, bool)), this,
                        SLOT(onColorChanged(const ColorModel &, bool)));
+  ret = ret &&
+        connect(m_plainColorPage,
+                SIGNAL(addPaletteStyleRequested(const ColorModel &)), this,
+                SLOT(onAddPaletteStyleRequested(const ColorModel &)));
   ret = ret && m_plainColorPage->connectPickerContextMenu(
                        this, SLOT(onPickerContextMenu(QPoint)));
   assert(ret);
@@ -8258,6 +8812,33 @@ void StyleEditor::copyEditedStyleToPalette(bool isDragging) {
   }
 
   m_paletteHandle->notifyColorStyleChanged(isDragging);
+}
+
+//-----------------------------------------------------------------------------
+
+void StyleEditor::onAddPaletteStyleRequested(const ColorModel &color) {
+  TPalette *palette = getPalette();
+  if (!palette || palette->isLocked() || palette->isCleanupPalette()) return;
+  int styleIndex = getStyleIndex();
+  TPalette::Page *page = palette->getStylePage(styleIndex);
+  if (!page && palette->getPageCount() > 0) page = palette->getPage(0);
+  if (!page) return;
+  const int insertAt = page->getStyleCount();
+  TSolidColorStyle added(color.getTPixel());
+  std::vector<TColorStyle *> styles(1, &added);
+  PaletteCmd::addStyles(m_paletteHandle, page->getIndex(), insertAt, styles);
+  if (insertAt >= page->getStyleCount()) return;
+  const int newId = page->getStyleId(insertAt);
+  TColorStyle *cs = page->getStyle(insertAt);
+  if (cs) {
+    cs->setName(QString("color_%1").arg(newId).toStdWString());
+    if (palette->getGlobalName() != L"") {
+      cs->setGlobalName(L"-" + palette->getGlobalName() + L"-" +
+                        std::to_wstring(newId));
+    }
+  }
+  palette->setDirtyFlag(true);
+  m_paletteHandle->notifyPaletteChanged();
 }
 
 //-----------------------------------------------------------------------------

@@ -601,6 +601,7 @@ signals:
   void svShapeClicked();
   void pickerKindClicked(int kind);
   void pickerContextMenuRequested(const QPoint &globalPos);
+  void addPaletteStyleRequested(const ColorModel &);
 
 protected slots:
   void onWheelChanged(const ColorModel &color, bool isDragging);
@@ -1117,6 +1118,7 @@ protected slots:
 
   // chiamato quando viene modificato uno slider o la color wheel
   void onColorChanged(const ColorModel &, bool isDragging);
+  void onAddPaletteStyleRequested(const ColorModel &);
 
   void selectStyle(const TColorStyle &style);
 
