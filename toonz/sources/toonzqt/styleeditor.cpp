@@ -69,6 +69,7 @@
 #include <QSplitter>
 #include <QMenu>
 #include <QAction>
+#include <QFile>
 #include <QStringList>
 #include <QOpenGLFramebufferObject>
 #include <QEvent>
@@ -103,13 +104,13 @@ TEnv::IntVar StyleEditorAdvancedSvShape(
 TEnv::IntVar StyleEditorAdvancedPickerKind(
     "StyleEditorAdvancedPickerKind", static_cast<int>(AdvancedPickerKind::Wheel));
 TEnv::IntVar StyleEditorShowAdvancedModeButton(
-    "StyleEditorShowAdvancedModeButton", 1);
-TEnv::IntVar StyleEditorShowSvShapeButton("StyleEditorShowSvShapeButton", 1);
-TEnv::IntVar StyleEditorShowSectionToggles("StyleEditorShowSectionToggles", 1);
+    "StyleEditorShowAdvancedModeButton", 0);
+TEnv::IntVar StyleEditorShowSvShapeButton("StyleEditorShowSvShapeButton", 0);
+TEnv::IntVar StyleEditorShowSectionToggles("StyleEditorShowSectionToggles", 0);
 TEnv::IntVar StyleEditorShowPickerKindButtons(
-    "StyleEditorShowPickerKindButtons", 1);
-TEnv::IntVar StyleEditorShowVarButton("StyleEditorShowVarButton", 1);
-TEnv::IntVar StyleEditorShowColorFeaturesBar("StyleEditorShowColorFeaturesBar", 1);
+    "StyleEditorShowPickerKindButtons", 0);
+TEnv::IntVar StyleEditorShowVarButton("StyleEditorShowVarButton", 0);
+TEnv::IntVar StyleEditorShowColorFeaturesBar("StyleEditorShowColorFeaturesBar", 0);
 TEnv::IntVar StyleEditorShowCollectorButton("StyleEditorShowCollectorButton",
                                             1);
 TEnv::IntVar StyleEditorShowHistoryButton("StyleEditorShowHistoryButton", 1);
@@ -2702,8 +2703,22 @@ private:
     if (m_board) m_board->update();
   }
 
+  void placeList() {
+    if (!m_list || !m_head) return;
+    const int y = m_head->geometry().bottom() + 1;
+    const int h = std::min(kColorSets * 18, std::max(0, height() - y));
+    const int x = m_board ? m_board->x() : 0;
+    const int w = m_board ? m_board->width() : width();
+    m_list->setGeometry(x, y, w, h);
+    m_list->raise();
+  }
+
   void setListOpen(bool on) {
-    if (m_list) m_list->setVisible(on);
+    if (m_list) {
+      if (on) placeList();
+      m_list->setVisible(on);
+      if (on) m_list->raise();
+    }
     if (m_toggle)
       m_toggle->setArrowType(on ? Qt::DownArrow : Qt::RightArrow);
   }
@@ -2780,7 +2795,6 @@ public:
     m_list->setFrameShape(QFrame::StyledPanel);
     m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_list->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    m_list->setFixedHeight(kColorSets * 18);
     for (int b = 0; b < kColorSets; ++b) m_list->addItem(m_names[b]);
     m_list->setCurrentRow(m_colorSet);
     m_list->hide();
@@ -2818,7 +2832,6 @@ public:
     lay->setContentsMargins(0, 0, 0, 0);
     lay->setSpacing(2);
     lay->addWidget(m_head, 0);
-    lay->addWidget(m_list, 0);
     lay->addWidget(m_board, 1);
   }
 
@@ -2826,10 +2839,12 @@ protected:
   void resizeEvent(QResizeEvent *e) override {
     QWidget::resizeEvent(e);
     syncHeaderPad();
+    if (m_list && m_list->isVisible()) placeList();
   }
   void showEvent(QShowEvent *e) override {
     QWidget::showEvent(e);
     syncHeaderPad();
+    if (m_list && m_list->isVisible()) placeList();
   }
 
 public:
@@ -4414,6 +4429,44 @@ class ColorMixerPane final : public QWidget {
     m_img = grown;
   }
 
+  static TFilePath canvasPath() {
+    return ToonzFolder::getMyModuleDir() + TFilePath("styleeditor_mixer.png");
+  }
+
+  void persistCanvas() {
+    const TFilePath fp = canvasPath();
+    const QString q    = fp.getQString();
+    if (m_img.isNull()) {
+      QFile::remove(q);
+      return;
+    }
+    bool painted = false;
+    for (int y = 0; y < m_img.height() && !painted; ++y) {
+      const QRgb *line =
+          reinterpret_cast<const QRgb *>(m_img.constScanLine(y));
+      for (int x = 0; x < m_img.width(); ++x) {
+        if (qAlpha(line[x]) >= 16) {
+          painted = true;
+          break;
+        }
+      }
+    }
+    if (!painted) {
+      QFile::remove(q);
+      return;
+    }
+    TSystem::touchParentDir(fp);
+    m_img.save(q, "PNG");
+  }
+
+  void restoreCanvas() {
+    const QString q = canvasPath().getQString();
+    if (!QFile::exists(q)) return;
+    QImage img;
+    if (!img.load(q) || img.isNull()) return;
+    m_img = img.convertToFormat(QImage::Format_ARGB32);
+  }
+
   void syncHistBtns() {
     if (m_undoBtn) m_undoBtn->setEnabled(!m_undo.isEmpty());
     if (m_redoBtn) m_redoBtn->setEnabled(!m_redo.isEmpty());
@@ -4437,6 +4490,7 @@ class ColorMixerPane final : public QWidget {
     while (m_undo.size() > kHistMax) m_undo.removeFirst();
     m_redo.clear();
     syncHistBtns();
+    persistCanvas();
   }
 
   void pushHist() {
@@ -4453,6 +4507,7 @@ class ColorMixerPane final : public QWidget {
     m_img = m_undo.takeLast();
     update();
     syncHistBtns();
+    persistCanvas();
   }
 
   void redoHist() {
@@ -4461,6 +4516,7 @@ class ColorMixerPane final : public QWidget {
     m_img = m_redo.takeLast();
     update();
     syncHistBtns();
+    persistCanvas();
   }
 
   struct Ryb {
@@ -5139,7 +5195,13 @@ class ColorMixerPane final : public QWidget {
   }
 
   QColor barInk() const {
-    return ThemeManager::getInstance().getIconBaseColor();
+    const QWidget *w = m_bar ? static_cast<const QWidget *>(m_bar) : this;
+    const QColor bg  = w->palette().color(QPalette::Window);
+    QColor ink       = ThemeManager::getInstance().getIconBaseColor();
+    if (!ink.isValid()) ink = w->palette().color(QPalette::WindowText);
+    if (std::abs(ink.lightness() - bg.lightness()) >= 80) return ink;
+    return bg.lightness() < 128 ? QColor(0xce, 0xce, 0xce)
+                                : QColor(0x22, 0x22, 0x22);
   }
 
   QIcon sizeIcon(int radius, int px = 16) const {
@@ -5336,6 +5398,11 @@ protected:
       const int h = 16;
       m_bar->setGeometry(0, height() - h, width(), h);
     }
+  }
+
+  void hideEvent(QHideEvent *e) override {
+    persistCanvas();
+    QWidget::hideEvent(e);
   }
 
   void pointerPress(const QPoint &pos, Qt::MouseButton button,
@@ -5607,6 +5674,7 @@ public:
       pushHist();
       m_img.fill(qRgba(0, 0, 0, 0));
       resetView();
+      persistCanvas();
       update();
     });
     barLay->addWidget(clearBtn);
@@ -5648,7 +5716,6 @@ public:
 
     m_radius  = normalizedMixerRadius(StyleEditorMixerBrush);
     m_sizeBtn = mkBtn(0, tr("Size"));
-    m_sizeBtn->setPopupMode(QToolButton::InstantPopup);
     m_sizeBtn->setIcon(sizeIcon(m_radius));
     m_sizeMenu   = new QMenu(m_sizeBtn);
     auto addSize = [this](int r, const QString &label) {
@@ -5658,7 +5725,15 @@ public:
     addSize(8, tr("Small"));
     addSize(14, tr("Medium"));
     addSize(26, tr("Large"));
-    m_sizeBtn->setMenu(m_sizeMenu);
+    connect(m_sizeBtn, &QToolButton::clicked, this, [this]() {
+      if (m_sizeMenu->isVisible()) {
+        m_sizeMenu->hide();
+        return;
+      }
+      const QSize sh = m_sizeMenu->sizeHint();
+      const QPoint g = m_sizeBtn->mapToGlobal(QPoint(0, 0));
+      m_sizeMenu->popup(QPoint(g.x(), g.y() - sh.height()));
+    });
     connect(m_sizeMenu, &QMenu::triggered, this, [this](QAction *a) {
       applyRadius(a->data().toInt());
     });
@@ -5712,6 +5787,7 @@ public:
     barLay->addWidget(bgBlack);
     barLay->addWidget(bgWhite);
     barLay->addWidget(bgNone);
+    restoreCanvas();
   }
 
   void setCurrent(std::function<ColorModel()> cb) { m_current = std::move(cb); }
@@ -9370,6 +9446,12 @@ void StyleEditor::fillPickerContextMenu(QMenu *menu) {
   showVarBtn->setCheckable(true);
   showVarBtn->setData(QStringLiteral("chrome:var"));
   showVarBtn->setChecked(StyleEditorShowVarButton != 0);
+  if (advanced) {
+    QAction *showShapeBtn = menu->addAction(tr("Show Chromatic Space Icon"));
+    showShapeBtn->setCheckable(true);
+    showShapeBtn->setData(QStringLiteral("chrome:shape"));
+    showShapeBtn->setChecked(StyleEditorShowSvShapeButton != 0);
+  }
   QMenu *colorFeaturesMenu = menu->addMenu(tr("Color Features Bar"));
   QAction *showColorFeaturesBar =
       colorFeaturesMenu->addAction(tr("Show Color Features Bar"));
@@ -9411,12 +9493,6 @@ void StyleEditor::fillPickerContextMenu(QMenu *menu) {
   showMixerBtn->setCheckable(true);
   showMixerBtn->setData(QStringLiteral("chrome:mixer"));
   showMixerBtn->setChecked(StyleEditorShowMixerButton != 0);
-  if (advanced) {
-    QAction *showShapeBtn = menu->addAction(tr("Show Chromatic Space Icon"));
-    showShapeBtn->setCheckable(true);
-    showShapeBtn->setData(QStringLiteral("chrome:shape"));
-    showShapeBtn->setChecked(StyleEditorShowSvShapeButton != 0);
-  }
 }
 
 //-----------------------------------------------------------------------------
