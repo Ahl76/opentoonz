@@ -543,6 +543,10 @@ DVAPI std::vector<int> findStrokesInClosedRegion(const TVectorImageP &vi,
                                                  const TStroke *boundaryStroke,
                                                  bool selective, int colorStyle);
 
+DVAPI std::vector<StrokeSegmentRanges> computeRegionPortionRanges(
+    const TVectorImageP &vi, const TStroke *boundaryStroke, bool selective,
+    int colorStyle);
+
 }  // namespace ToolUtils
 
 #endif  // TOOLSUTILS_H

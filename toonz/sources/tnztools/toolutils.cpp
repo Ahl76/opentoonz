@@ -2158,6 +2158,9 @@ std::vector<int> ToolUtils::findStrokesInClosedRegion(
     int colorStyle) {
   std::vector<int> result;
   if (!vi || !boundaryStroke) return result;
+  if (boundaryStroke->getControlPointCount() < 3 ||
+      boundaryStroke->getLength() < 1e-3)
+    return result;
 
   TVectorImage regionImg;
   TStroke *regionStroke = new TStroke(*boundaryStroke);
@@ -2178,6 +2181,79 @@ std::vector<int> ToolUtils::findStrokesInClosedRegion(
         break;
       }
     }
+  }
+
+  return result;
+}
+
+//-----------------------------------------------------------------------------
+
+std::vector<ToolUtils::StrokeSegmentRanges> ToolUtils::computeRegionPortionRanges(
+    const TVectorImageP &vi, const TStroke *boundaryStroke, bool selective,
+    int colorStyle) {
+  std::vector<StrokeSegmentRanges> result;
+  if (!vi || !boundaryStroke) return result;
+  if (boundaryStroke->getControlPointCount() < 3 ||
+      boundaryStroke->getLength() < 1e-3)
+    return result;
+
+  TVectorImage regionImg;
+  regionImg.addStroke(new TStroke(*boundaryStroke));
+  regionImg.findRegions();
+  if (regionImg.getRegionCount() == 0) return result;
+
+  for (int strokeIndex = 0; strokeIndex < (int)vi->getStrokeCount();
+       ++strokeIndex) {
+    if (!vi->inCurrentGroup(strokeIndex)) continue;
+    TStroke *currentStroke = vi->getStroke(strokeIndex);
+    if (!currentStroke) continue;
+    if (selective && currentStroke->getStyle() != colorStyle) continue;
+
+    std::vector<DoublePair> intersections;
+    intersect(boundaryStroke, currentStroke, intersections, false);
+
+    std::vector<double> cuts;
+    cuts.push_back(0.0);
+    for (const DoublePair &cross : intersections) cuts.push_back(cross.second);
+    cuts.push_back(1.0);
+    std::sort(cuts.begin(), cuts.end());
+    cuts.erase(std::unique(cuts.begin(), cuts.end(),
+                           [](double a, double b) {
+                             return areAlmostEqual(a, b, 1e-4);
+                           }),
+               cuts.end());
+
+    std::vector<DoublePair> ranges;
+    for (size_t k = 0; k + 1 < cuts.size(); ++k) {
+      const double w0 = cuts[k];
+      const double w1 = cuts[k + 1];
+      if (w1 <= w0 + 1e-6) continue;
+      const TPointD mid = currentStroke->getPoint(0.5 * (w0 + w1));
+      for (UINT regionIndex = 0; regionIndex < regionImg.getRegionCount();
+           ++regionIndex) {
+        if (regionImg.getRegion(regionIndex)->contains(mid)) {
+          ranges.push_back(DoublePair(w0, w1));
+          break;
+        }
+      }
+    }
+    if (ranges.empty()) continue;
+
+    std::sort(ranges.begin(), ranges.end(), doublePairCompare);
+    std::vector<DoublePair> merged;
+    merged.push_back(ranges[0]);
+    for (size_t k = 1; k < ranges.size(); ++k) {
+      if (merged.back().second < ranges[k].first &&
+          !areAlmostEqual(merged.back().second, ranges[k].first, 1e-3))
+        merged.push_back(ranges[k]);
+      else if (merged.back().second < ranges[k].second)
+        merged.back().second = ranges[k].second;
+    }
+
+    StrokeSegmentRanges item;
+    item.strokeIndex = strokeIndex;
+    item.ranges      = merged;
+    result.push_back(item);
   }
 
   return result;
