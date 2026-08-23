@@ -82,6 +82,13 @@ public:
 
   bool empty() const { return m_oldSegments.empty(); }
 
+  void refreshViewer() const {
+    TTool::Application *app = TTool::getApplication();
+    if (!app || !app->getCurrentTool()) return;
+    TTool *tool = app->getCurrentTool()->getTool();
+    if (tool) tool->invalidate();
+  }
+
   void undo() const override {
     TVectorImageP image = m_level->getFrame(m_frameId, true);
     if (!image) return;
@@ -93,6 +100,7 @@ public:
       image->setHideLineSegments(kv.first, kv.second);
     }
     notifyImageChanged();
+    refreshViewer();
   }
 
   void redo() const override {
@@ -106,6 +114,7 @@ public:
       image->setHideLineSegments(kv.first, kv.second);
     }
     notifyImageChanged();
+    refreshViewer();
   }
 
   int getSize() const override { return sizeof(*this) + 500; }

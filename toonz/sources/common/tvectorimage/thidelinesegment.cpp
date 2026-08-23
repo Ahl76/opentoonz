@@ -273,6 +273,54 @@ std::vector<THideLineSegment> interpolateHideLineSegments(
 
 //-----------------------------------------------------------------------------
 
+std::vector<THideLineSegment> remapHideLineSegments(
+    const std::vector<THideLineSegment> &src, const TStroke &oldStroke,
+    const TStroke &newStroke, double rangeW0, double rangeW1,
+    double lengthOffset) {
+  std::vector<THideLineSegment> out;
+  if (src.empty() || rangeW1 <= rangeW0 + 1e-6) return out;
+
+  out.reserve(src.size());
+  for (const THideLineSegment &seg : src) {
+    const double a = std::max(seg.m_w0, rangeW0);
+    const double b = std::min(seg.m_w1, rangeW1);
+    if (b <= a + 1e-6) continue;
+
+    const double w0 = newStroke.getParameterAtLength(
+        lengthOffset + oldStroke.getLength(rangeW0, a));
+    const double w1 = newStroke.getParameterAtLength(
+        lengthOffset + oldStroke.getLength(rangeW0, b));
+    if (w1 <= w0 + 1e-6) continue;
+    out.emplace_back(w0, w1, seg.m_mode);
+  }
+
+  mergeHideLineSegments(out);
+  return out;
+}
+
+//-----------------------------------------------------------------------------
+
+std::vector<THideLineSegment> remapHideLineSegmentsByGeometry(
+    const std::vector<THideLineSegment> &src, const TStroke &oldStroke,
+    const TStroke &newStroke) {
+  std::vector<THideLineSegment> out;
+  if (src.empty()) return out;
+
+  out.reserve(src.size());
+  for (const THideLineSegment &seg : src) {
+    double w0 = newStroke.getW(oldStroke.getPoint(seg.m_w0));
+    double w1 = newStroke.getW(oldStroke.getPoint(seg.m_w1));
+    if (w0 > w1) std::swap(w0, w1);
+    if (w1 <= w0 + 1e-6) continue;
+    out.emplace_back(w0, w1, seg.m_mode);
+  }
+
+  mergeHideLineSegments(out);
+  return out;
+}
+
+//-----------------------------------------------------------------------------
+
 TStroke extractStrokePortion(const TStroke &src, double w0, double w1) {
   TStroke dummy, portion, result;
   if (areAlmostEqual(w0, 0.0, 1e-4))

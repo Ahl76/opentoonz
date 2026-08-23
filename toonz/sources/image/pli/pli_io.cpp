@@ -2475,12 +2475,22 @@ TUINT32 ParsedPliImp::writeHideLineSegmentsTag(HideLineSegmentsTag *tag) {
   assert(m_oChan);
 
   const double scale = 100000.0;
-  int count          = (int)tag->m_segments.size();
+  const int count    = (int)tag->m_segments.size();
 
-  setDynamicTypeBytesNum(0, count);
-  int tagLength = m_currDynamicTypeBytesNum + count * (2 * m_currDynamicTypeBytesNum + 1);
-  int offset =
-      (int)writeTagHeader((UCHAR)PliTag::HIDE_LINE_SEGMENTS_GOBJ, tagLength);
+  TINT32 maxValue = count;
+  for (const THideLineSegment &seg : tag->m_segments) {
+    const TINT32 w0 = (TINT32)(scale * seg.m_w0);
+    const TINT32 w1 = (TINT32)(scale * seg.m_w1);
+    if (w0 > maxValue) maxValue = w0;
+    if (w1 > maxValue) maxValue = w1;
+  }
+
+  setDynamicTypeBytesNum(0, maxValue);
+  const UINT dataBytes = m_currDynamicTypeBytesNum;
+  const UINT tagLength =
+      dataBytes + count * (2 * dataBytes + sizeof(UCHAR));
+  const TUINT32 offset =
+      writeTagHeader((UCHAR)PliTag::HIDE_LINE_SEGMENTS_GOBJ, tagLength);
 
   writeDynamicData((TINT32)count);
   for (const THideLineSegment &seg : tag->m_segments) {

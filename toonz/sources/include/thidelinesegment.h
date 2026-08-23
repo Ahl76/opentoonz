@@ -66,4 +66,15 @@ DVAPI std::vector<THideLineSegment> interpolateHideLineSegments(
 
 DVAPI TStroke extractStrokePortion(const TStroke &src, double w0, double w1);
 
+// Map hide ranges from a parent interval onto a new stroke.
+DVAPI std::vector<THideLineSegment> remapHideLineSegments(
+    const std::vector<THideLineSegment> &src, const TStroke &oldStroke,
+    const TStroke &newStroke, double rangeW0, double rangeW1,
+    double lengthOffset = 0);
+
+// Map hide ranges onto a rebuilt stroke by the original segment positions.
+DVAPI std::vector<THideLineSegment> remapHideLineSegmentsByGeometry(
+    const std::vector<THideLineSegment> &src, const TStroke &oldStroke,
+    const TStroke &newStroke);
+
 #endif

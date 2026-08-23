@@ -1990,6 +1990,9 @@ assert(m_strokes[strokeIndex-wSize+1]->m_edgeList.empty());*/
     insertStrokeAt(subV, strokeIndex);
     subV->m_s->setStyle(styleId);
     subV->m_s->outlineOptions() = oOptions;
+    subV->m_hideLineSegments    = remapHideLineSegments(
+        vs->m_hideLineSegments, *vs->m_s, *subV->m_s, sortedWRanges[i].first,
+        sortedWRanges[i].second);
   }
 
   clearPointerContainer(origEdgeList);
@@ -2011,6 +2014,16 @@ assert(m_strokes[strokeIndex-wSize+1]->m_edgeList.empty());*/
 
     VIStroke *s = new VIStroke(joinStrokes(s0->m_s, s1->m_s), groupId);
     insertStrokeAt(s, strokeIndex);
+    {
+      std::vector<THideLineSegment> joined = remapHideLineSegments(
+          s0->m_hideLineSegments, *s0->m_s, *s->m_s, 0.0, 1.0);
+      std::vector<THideLineSegment> fromS1 = remapHideLineSegments(
+          s1->m_hideLineSegments, *s1->m_s, *s->m_s, 0.0, 1.0,
+          s0->m_s->getLength());
+      joined.insert(joined.end(), fromS1.begin(), fromS1.end());
+      mergeHideLineSegments(joined);
+      s->m_hideLineSegments = joined;
+    }
 
     std::list<TEdge *>::iterator it = l0.begin(), it_e = l0.end();
     for (; it != it_e; ++it) {
@@ -2203,11 +2216,15 @@ VIStroke *TVectorImage::Imp::extendStrokeSmoothly(int index,
   computeEdgeList(newStroke, m_strokes[index]->m_edgeList, cpIndex == 0,
                   emptyList, 0, oldEdgeList);
 
+  std::vector<THideLineSegment> joinedHide = remapHideLineSegmentsByGeometry(
+      m_strokes[index]->m_hideLineSegments, *stroke, *newStroke);
+
   std::vector<int> toBeDeleted;
   toBeDeleted.push_back(index);
   removeStrokes(toBeDeleted, true, false);
 
   insertStrokeAt(new VIStroke(newStroke, groupId), index, false);
+  m_strokes[index]->m_hideLineSegments = joinedHide;
   computeRegions();
   transferColors(oldEdgeList, m_strokes[index]->m_edgeList, true, false, true);
 
@@ -2243,6 +2260,9 @@ VIStroke *TVectorImage::Imp::extendStroke(int index, const TThickPoint &p,
     computeEdgeList(newStroke, m_strokes[index]->m_edgeList, cpIndex == 0,
                     emptyList, false, oldEdgeList);
 
+  std::vector<THideLineSegment> joinedHide = remapHideLineSegmentsByGeometry(
+      m_strokes[index]->m_hideLineSegments, *stroke, *newStroke);
+
   std::vector<int> toBeDeleted;
   toBeDeleted.push_back(index);
   removeStrokes(toBeDeleted, true, false);
@@ -2250,6 +2270,7 @@ VIStroke *TVectorImage::Imp::extendStroke(int index, const TThickPoint &p,
   // removeStroke(index, false);
 
   insertStrokeAt(new VIStroke(newStroke, groupId), index, false);
+  m_strokes[index]->m_hideLineSegments = joinedHide;
 
   if (m_computedAlmostOnce) {
     computeRegions();
@@ -2313,12 +2334,22 @@ VIStroke *TVectorImage::Imp::joinStroke(int index1, int index2, int cpIndex1,
       (index1 != index2) ? m_strokes[index2]->m_edgeList : emptyList,
       cpIndex2 == 0, oldEdgeList);
 
+  std::vector<THideLineSegment> joinedHide = remapHideLineSegmentsByGeometry(
+      m_strokes[index1]->m_hideLineSegments, *stroke1, *newStroke);
+  if (index1 != index2) {
+    std::vector<THideLineSegment> from2 = remapHideLineSegmentsByGeometry(
+        m_strokes[index2]->m_hideLineSegments, *stroke2, *newStroke);
+    joinedHide.insert(joinedHide.end(), from2.begin(), from2.end());
+    mergeHideLineSegments(joinedHide);
+  }
+
   std::vector<int> toBeDeleted;
   toBeDeleted.push_back(index1);
   if (index1 != index2) toBeDeleted.push_back(index2);
   removeStrokes(toBeDeleted, true, false);
 
   insertStrokeAt(new VIStroke(newStroke, groupId), index1, false);
+  m_strokes[index1]->m_hideLineSegments = joinedHide;
   computeRegions();
   transferColors(oldEdgeList, m_strokes[index1]->m_edgeList, true, false, true);
   return m_strokes[index1];
@@ -2442,12 +2473,20 @@ VIStroke *TVectorImage::Imp::joinStrokeSmoothly(int index1, int index2,
                   m_strokes[index2]->m_edgeList, cpIndex2 == 0, oldEdgeList);
   // printEdges(os, "****edgelist", getPalette(), oldEdgeList);
 
+  std::vector<THideLineSegment> joinedHide = remapHideLineSegmentsByGeometry(
+      m_strokes[index1]->m_hideLineSegments, *stroke1, *newStroke);
+  std::vector<THideLineSegment> from2 = remapHideLineSegmentsByGeometry(
+      m_strokes[index2]->m_hideLineSegments, *stroke2, *newStroke);
+  joinedHide.insert(joinedHide.end(), from2.begin(), from2.end());
+  mergeHideLineSegments(joinedHide);
+
   std::vector<int> toBeDeleted;
   toBeDeleted.push_back(index1);
   toBeDeleted.push_back(index2);
   removeStrokes(toBeDeleted, true, false);
 
   insertStrokeAt(new VIStroke(newStroke, groupId), index1);
+  m_strokes[index1]->m_hideLineSegments = joinedHide;
   computeRegions();
   transferColors(oldEdgeList, m_strokes[index1]->m_edgeList, true, false, true);
 
