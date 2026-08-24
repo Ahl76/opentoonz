@@ -118,8 +118,10 @@ public:
   int m_numInter;
   // bool m_isNotErasable;
   VIList<IntersectedStroke> m_strokeList;
+  // Hide-line fill vertex; rebuilt, not saved.
+  bool m_isFillGap;
 
-  Intersection() : m_numInter(0), m_strokeList() {}
+  Intersection() : m_numInter(0), m_strokeList(), m_isFillGap(false) {}
 
   inline Intersection *next() { return (Intersection *)VIListElem::next(); };
   inline Intersection *prev() { return (Intersection *)VIListElem::prev(); };
@@ -524,7 +526,7 @@ void TVectorImage::Imp::eraseDeadIntersections() {
       eraseBranch(p, p->m_strokeList.first());
       assert(p->m_strokeList.size() == 0);
       p = m_intersectionData->m_intList.erase(p);
-    } else if (p->m_strokeList.size() == 2 &&
+    } else if (!p->m_isFillGap && p->m_strokeList.size() == 2 &&
                (p->m_strokeList.first()->m_edge.m_s ==
                     p->m_strokeList.last()->m_edge.m_s &&
                 p->m_strokeList.first()->m_edge.m_w0 ==
@@ -622,51 +624,48 @@ UINT TVectorImage::Imp::getFillData(std::unique_ptr<IntersectionBranch[]> &v) {
 
   Intersection *p1;
   IntersectedStroke *p2;
-  UINT currInt = 0;
-  vector<UINT> branchesBefore(m_intersectionData->m_intList.size() + 1);
 
-  branchesBefore[0] = 0;
-  UINT count = 0, size = 0;
+  // Omit rebuilt hide-line vertices.
+  map<Intersection *, UINT> interPos;
+  map<IntersectedStroke *, UINT> branchPos;
+  UINT currInt = 0, size = 0;
 
-  p1 = m_intersectionData->m_intList.first();
-
-  for (; p1; p1 = p1->next(), currInt++) {
-    UINT strokeListSize = p1->m_strokeList.size();
-    size += strokeListSize;
-    branchesBefore[currInt + 1] = branchesBefore[currInt] + strokeListSize;
+  for (p1 = m_intersectionData->m_intList.first(); p1; p1 = p1->next()) {
+    if (p1->m_isFillGap) continue;
+    interPos[p1] = currInt++;
+    for (p2 = p1->m_strokeList.first(); p2; p2 = p2->next())
+      branchPos[p2] = size++;
   }
 
+  if (size == 0) return 0;
+
   v.reset(new IntersectionBranch[size]);
-  currInt = 0;
-  p1      = m_intersectionData->m_intList.first();
-  for (; p1; p1 = p1->next(), currInt++) {
-    UINT currBranch = 0;
-    for (p2 = p1->m_strokeList.first(); p2; p2 = p2->next(), currBranch++) {
+  UINT count = 0;
+
+  for (p1 = m_intersectionData->m_intList.first(); p1; p1 = p1->next()) {
+    if (p1->m_isFillGap) continue;
+    for (p2 = p1->m_strokeList.first(); p2; p2 = p2->next()) {
       IntersectionBranch &b = v[count];
-      b.m_currInter         = currInt;
+      b.m_currInter         = interPos[p1];
       b.m_strokeIndex       = p2->m_edge.m_index;
       b.m_w                 = p2->m_edge.m_w0;
       b.m_style             = p2->m_edge.m_styleId;
       // assert(b.m_style<100);
       b.m_gettingOut = p2->m_gettingOut;
-      if (!p2->m_nextIntersection)
-        b.m_nextBranch = count;
-      else {
-        UINT distInt =
-            m_intersectionData->m_intList.getPosOf(p2->m_nextIntersection);
-        UINT distBranch =
-            p2->m_nextIntersection->m_strokeList.getPosOf(p2->m_nextStroke);
 
-        if ((distInt < currInt) ||
-            (distInt == currInt && distBranch < currBranch)) {
-          UINT posNext = branchesBefore[distInt] + distBranch;
-          assert(posNext < count);
-          b.m_nextBranch = posNext;
-          assert(v[posNext].m_nextBranch == (std::numeric_limits<UINT>::max)());
-          v[posNext].m_nextBranch = count;
-        } else
-          b.m_nextBranch = (std::numeric_limits<UINT>::max)();
-      }
+      map<IntersectedStroke *, UINT>::iterator it =
+          p2->m_nextIntersection ? branchPos.find(p2->m_nextStroke)
+                                 : branchPos.end();
+      if (it == branchPos.end())
+        b.m_nextBranch = count;
+      else if (it->second < count) {
+        b.m_nextBranch = it->second;
+        assert(v[it->second].m_nextBranch ==
+               (std::numeric_limits<UINT>::max)());
+        v[it->second].m_nextBranch = count;
+      } else
+        b.m_nextBranch = (std::numeric_limits<UINT>::max)();
+
       count++;
     }
   }
@@ -731,6 +730,16 @@ TStroke *reconstructAutocloseStroke(Intersection *p1, IntersectedStroke *p2)
   if (!found) p2->m_edge.m_s = 0;
 
   return p2->m_edge.m_s;
+}
+
+bool isHideLineGapBoundary(const std::vector<THideLineSegment> &hideSegments,
+                           double w) {
+  for (const THideLineSegment &seg : hideSegments) {
+    if (seg.m_mode != THideLineMode::Hidden) continue;
+    if (areAlmostEqual(seg.m_w0, w, 1e-4) || areAlmostEqual(seg.m_w1, w, 1e-4))
+      return true;
+  }
+  return false;
 }
 
 }  // namespace
@@ -889,6 +898,21 @@ assert(v[b.m_nextBranch].m_nextBranch==i);
 
   for (i = 0; i < toBeDeleted.size(); i++) eraseIntersection(toBeDeleted[i]);
 
+  // Recover hide-line vertices from older files.
+  for (p1 = intList.first(); p1; p1 = p1->next()) {
+    if (p1->m_strokeList.size() != 2) continue;
+    IntersectedStroke *b0 = p1->m_strokeList.first();
+    IntersectedStroke *b1 = p1->m_strokeList.last();
+    int index             = b0->m_edge.m_index;
+    if (index != b1->m_edge.m_index || index < 0 ||
+        index >= (int)m_strokes.size())
+      continue;
+    if (!areAlmostEqual(b0->m_edge.m_w0, b1->m_edge.m_w0, 1e-5)) continue;
+    if (isHideLineGapBoundary(m_strokes[index]->m_hideLineSegments,
+                              b0->m_edge.m_w0))
+      p1->m_isFillGap = true;
+  }
+
   m_areValidRegions = false;
   //}
 
@@ -914,15 +938,54 @@ static void findNearestIntersection(VIList<Intersection> &interList,
                                     const vector<VIStroke *> &strokeArray,
                                     int strokeSize);
 
+static bool strokeHasFillVertexAt(const VIList<Intersection> &intList,
+                                  int index, double w) {
+  for (Intersection *p = intList.first(); p; p = p->next())
+    for (IntersectedStroke *q = p->m_strokeList.first(); q; q = q->next())
+      if (q->m_edge.m_index == index && areAlmostEqual(q->m_edge.m_w0, w, 1e-4))
+        return true;
+  return false;
+}
+
+static void addHideLineFillVertex(IntersectionData &intData,
+                                  const vector<VIStroke *> &strokeArray, int i,
+                                  double w) {
+  if (i < 0 || i >= (int)strokeArray.size()) return;
+  TStroke *s = strokeArray[i]->m_s;
+  if (!s || s->getChunkCount() <= 0) return;
+  if (strokeHasFillVertexAt(intData.m_intList, i, w)) return;
+
+  Intersection *node   = new Intersection();
+  node->m_intersection = s->getPoint(w);
+  node->m_isFillGap    = true;
+
+  IntersectedStroke item;
+  item.m_edge.m_s     = s;
+  item.m_edge.m_index = i;
+  item.m_edge.m_w0    = w;
+
+  if (w != 1.0) {
+    item.m_gettingOut = true;
+    node->m_strokeList.pushBack(new IntersectedStroke(item));
+  }
+  if (w != 0.0) {
+    item.m_gettingOut = false;
+    node->m_strokeList.pushBack(new IntersectedStroke(item));
+  }
+  if (!node->m_strokeList.first()) {
+    delete node;
+    return;
+  }
+  intData.m_intList.pushBack(node);
+}
+
 static void injectHideLineFillBoundaries(IntersectionData &intData,
                                          const vector<VIStroke *> &strokeArray,
-                                         int strokeSize, bool isVectorized) {
+                                         int strokeSize) {
   for (int i = 0; i < strokeSize; ++i) {
     const std::vector<THideLineSegment> &hideSegs =
         strokeArray[i]->m_hideLineSegments;
     if (getHiddenModeRanges(hideSegs).empty()) continue;
-
-    strokeArray[i]->m_isNewForFill = true;
 
     std::vector<double> boundaryWs;
     for (const THideLineSegment &seg : hideSegs) {
@@ -938,8 +1001,7 @@ static void injectHideLineFillBoundaries(IntersectionData &intData,
                      boundaryWs.end());
 
     for (double w : boundaryWs)
-      addIntersection(intData, strokeArray, i, i, DoublePair(w, w), strokeSize,
-                      isVectorized);
+      addHideLineFillVertex(intData, strokeArray, i, w);
   }
 }
 
@@ -1035,7 +1097,8 @@ void markDeadIntersections(VIList<Intersection> &intList, Intersection *p) {
       nextStroke->m_nextIntersection = 0;
       markDeadIntersectionsRic(intList, nextInt);
     }
-  } else if (p->m_numInter == 2)  // intersezione finta (forse)
+  } else if (p->m_numInter == 2 && !p->m_isFillGap)  // intersezione finta
+                                                     // (forse)
   {
     while (p1 && !p1->m_nextIntersection) p1 = p1->next();
     assert(p1);
@@ -1055,6 +1118,7 @@ void markDeadIntersections(VIList<Intersection> &intList, Intersection *p) {
 
       pp1 = p1->m_nextStroke;
       pp2 = p2->m_nextStroke;
+      if (!pp1 || !pp2) return;
 
       pp2->m_edge.m_w1 = pp1->m_edge.m_w0;
       pp1->m_edge.m_w1 = pp2->m_edge.m_w0;
@@ -2468,8 +2532,7 @@ int TVectorImage::Imp::computeIntersections() {
 
   findIntersections();
 
-  injectHideLineFillBoundaries(intData, m_strokes, strokeSize,
-                               m_autocloseTolerance < 0);
+  injectHideLineFillBoundaries(intData, m_strokes, strokeSize);
 
   findNearestIntersection(intData.m_intList, m_strokes, strokeSize);
 
@@ -2530,17 +2593,18 @@ static TRegion *findRegion(VIList<Intersection> &intList, Intersection *p1,
 
     // Ciclo finche' lo stroke puntato da it2 non ha un successivo punto di
     // intersezione
+    int turns = 0, branchCount = p1->m_strokeList.size();
     do {
       p2 = p2->next();
       if (!p2)  // uso la lista come se fosse circolare
         p2 = p1->m_strokeList.first();
-      if (!p2) {
+      if (!p2 || ++turns > branchCount) {
         delete r;
         return 0;
       }
 
     } while (!p2->m_nextIntersection);
-    if (!p2->m_edge.m_s) continue;
+    if (!p2->m_nextStroke || !p2->m_edge.m_s) continue;
 
     nextp1 = p2->m_nextIntersection;
     nextp2 = p2->m_nextStroke;
@@ -2664,10 +2728,12 @@ void computeRegionFeature(const TRegion &r, TRegionFeatureFormula &formula) {
   int lastControlPoint;
 
   TEdge *e = r.getEdge(size - 1);
-  pOld     = e->m_s->getPoint(e->m_w1);
+  if (!e || !e->m_s) return;
+  pOld = e->m_s->getPoint(e->m_w1);
 
   for (int i = 0; i < size; i++) {
-    TEdge *e          = r.getEdge(i);
+    TEdge *e = r.getEdge(i);
+    if (!e || !e->m_s) continue;
     TStroke *s        = e->m_s;
     firstControlPoint = s->getControlPointIndexAfterParameter(e->m_w0);
     lastControlPoint  = s->getControlPointIndexAfterParameter(e->m_w1);
