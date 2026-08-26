@@ -18,6 +18,7 @@
 #include "dvitemview.h"
 #include "tfilepath.h"
 #include "toonzqt/dvdialog.h"
+#include "saveloadqsettings.h"
 #include "versioncontrol.h"
 #include "tthread.h"
 
@@ -95,7 +96,9 @@ private:
 
 //-----------------------------------------------------------------------------
 
-class FileBrowser final : public QFrame, public DvItemListModel {
+class FileBrowser final : public QFrame,
+                          public DvItemListModel,
+                          public SaveLoadQSettings {
   Q_OBJECT
 
 public:
@@ -167,6 +170,9 @@ types to be displayed in the file browser.
 
   void setInfoPanelVisible(bool visible);
 
+  void save(QSettings &settings) const override;
+  void load(QSettings &settings) override;
+
 public slots:
   void onInfoPanelActionTriggered(bool on);
   void onInfoPanelContextMenu(const QPoint &pos);
@@ -183,6 +189,7 @@ protected:
   bool drop(const QMimeData *data) override;
   void showEvent(QShowEvent *) override;
   void hideEvent(QHideEvent *) override;
+  void resizeEvent(QResizeEvent *) override;
 
   // Fill the QStringList with files selected in the browser, auxiliary files
   // (palette for tlv, hooks, sceneIcons)
@@ -316,6 +323,7 @@ private:
   int m_currentPosition = 0;
 
   bool getInfoPanelFile(TFilePath &path) const;
+  void applyInfoPanelSize();
   int infoThumbPanelWidth() const;
   void updateInfoThumbnail(const TFilePath &fp);
   void setInfoThumbnailPixmap(const QPixmap &px);

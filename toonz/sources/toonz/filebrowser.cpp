@@ -52,6 +52,7 @@
 #include <QDragMoveEvent>
 #include <QDropEvent>
 #include <QDragLeaveEvent>
+#include <QResizeEvent>
 #include <QBoxLayout>
 #include <QLabel>
 #include <QByteArray>
@@ -542,6 +543,41 @@ FileBrowser::FileBrowser(QWidget *parent, Qt::WindowFlags flags,
 //-----------------------------------------------------------------------------
 
 FileBrowser::~FileBrowser() = default;  // all child widgets are auto-deleted
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::save(QSettings &settings) const {
+  if (m_mainSplitter)
+    settings.setValue("treeSplitterState", m_mainSplitter->saveState());
+  settings.setValue("infoPanelVisible", m_infoPanelVisible ? 1 : 0);
+  int infoW = (int)BrowserInfoPanelWidth;
+  if (m_infoPanelVisible && m_itemsSplitter) {
+    const QList<int> sizes = m_itemsSplitter->sizes();
+    if (sizes.size() == 2 && sizes[1] > 0) infoW = sizes[1];
+  }
+  if (infoW > 0) settings.setValue("infoPanelWidth", infoW);
+}
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::load(QSettings &settings) {
+  if (m_mainSplitter) {
+    const QByteArray state = settings.value("treeSplitterState").toByteArray();
+    if (!state.isEmpty()) m_mainSplitter->restoreState(state);
+  }
+  if (settings.contains("infoPanelWidth")) {
+    const int w = settings.value("infoPanelWidth").toInt();
+    if (w >= 140) BrowserInfoPanelWidth = w;
+  }
+  if (settings.contains("infoPanelVisible")) {
+    const bool vis = settings.value("infoPanelVisible").toInt() != 0;
+    if (m_buttonBar) m_buttonBar->setInfoPanelChecked(vis);
+    if (m_infoPanelVisible != vis)
+      setInfoPanelVisible(vis);
+    else if (vis)
+      applyInfoPanelSize();
+  }
+}
 
 //-----------------------------------------------------------------------------
 
@@ -2612,6 +2648,22 @@ bool FileBrowser::getInfoPanelFile(TFilePath &path) const {
 
 //-----------------------------------------------------------------------------
 
+void FileBrowser::applyInfoPanelSize() {
+  if (!m_itemsSplitter || !m_infoPanelVisible) return;
+  QList<int> sizes = m_itemsSplitter->sizes();
+  if (sizes.size() != 2) return;
+  const int total = sizes[0] + sizes[1];
+  if (total < 80) return;
+  int infoWidth = (int)BrowserInfoPanelWidth;
+  if (infoWidth < 140) infoWidth = 220;
+  infoWidth = qMin(infoWidth, qMax(140, total - 80));
+  sizes[0]  = total - infoWidth;
+  sizes[1]  = infoWidth;
+  m_itemsSplitter->setSizes(sizes);
+}
+
+//-----------------------------------------------------------------------------
+
 void FileBrowser::setInfoPanelVisible(bool visible) {
   if (!m_infoScrollArea || !m_itemsSplitter) return;
   if (m_infoPanelVisible == visible) return;
@@ -2624,14 +2676,9 @@ void FileBrowser::setInfoPanelVisible(bool visible) {
   if (sizes.size() == 2) {
     const int total = sizes[0] + sizes[1];
     if (visible) {
-      if (sizes[1] < 80) {
-        int infoWidth = (int)BrowserInfoPanelWidth;
-        if (infoWidth < 120) infoWidth = 220;
-        infoWidth = qBound(140, infoWidth, qMin(320, qMax(140, total / 3)));
-        sizes[0]    = total - infoWidth;
-        sizes[1]    = infoWidth;
-        m_itemsSplitter->setSizes(sizes);
-      }
+      applyInfoPanelSize();
+      if (total < 80)
+        QTimer::singleShot(0, this, [this]() { applyInfoPanelSize(); });
     } else if (sizes[1] > 0) {
       BrowserInfoPanelWidth = sizes[1];
       m_itemsSplitter->setSizes({total, 0});
@@ -2646,6 +2693,8 @@ void FileBrowser::setInfoPanelVisible(bool visible) {
     QTimer::singleShot(0, this, &FileBrowser::refreshInfoPanelFromSelection);
   }
 }
+
+//-----------------------------------------------------------------------------
 
 //-----------------------------------------------------------------------------
 
@@ -2967,6 +3016,16 @@ void FileBrowser::showEvent(QShowEvent *) {
   if (vcNode) m_folderTreeView->refreshVersionControl(vcNode);
 
   if (m_buttonBar) m_buttonBar->refreshProjectFolderShortcuts();
+
+  if (m_infoPanelVisible)
+    QTimer::singleShot(0, this, [this]() { applyInfoPanelSize(); });
+}
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::resizeEvent(QResizeEvent *e) {
+  QFrame::resizeEvent(e);
+  if (m_infoPanelVisible) applyInfoPanelSize();
 }
 
 //-----------------------------------------------------------------------------

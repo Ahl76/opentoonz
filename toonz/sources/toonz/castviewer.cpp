@@ -56,7 +56,6 @@ const char *AudioFolderName = "Audio";
 using namespace DVGui;
 
 namespace {
-
 // Se il widget del cast viewer viene spostato in toonzqt (e quindi fatto
 // dipendere dallo sceneHandle)
 // questo undo puo' essere spostato in un nuovo file levelsetcommand in
@@ -465,7 +464,6 @@ CastBrowser::CastBrowser(QWidget *parent, Qt::WindowFlags flags)
   setFrameStyle(QFrame::StyledPanel);
 
   m_treeViewer = new CastTreeViewer(this);
-  m_treeViewer->resize(300, m_treeViewer->size().height());
 
   QFrame *box = new QFrame(this);
   box->setFrameStyle(QFrame::StyledPanel);
@@ -504,6 +502,7 @@ CastBrowser::CastBrowser(QWidget *parent, Qt::WindowFlags flags)
   addWidget(box);
 
   setStretchFactor(1, 2);
+  setSizes(QList<int>() << 270 << 500);
 
   TSceneHandle *sceneHandle = TApp::instance()->getCurrentScene();
 
@@ -526,6 +525,19 @@ CastBrowser::CastBrowser(QWidget *parent, Qt::WindowFlags flags)
 //-----------------------------------------------------------------------------
 
 CastBrowser::~CastBrowser() {}
+
+//-----------------------------------------------------------------------------
+
+void CastBrowser::save(QSettings &settings) const {
+  settings.setValue("treeSplitterState", saveState());
+}
+
+//-----------------------------------------------------------------------------
+
+void CastBrowser::load(QSettings &settings) {
+  const QByteArray state = settings.value("treeSplitterState").toByteArray();
+  if (!state.isEmpty()) restoreState(state);
+}
 
 //-----------------------------------------------------------------------------
 

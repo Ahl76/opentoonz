@@ -10,6 +10,7 @@
 
 #include "dvitemview.h"
 #include "tfilepath.h"
+#include "saveloadqsettings.h"
 
 class QLabel;
 class TLevelSet;
@@ -68,7 +69,9 @@ signals:
    m_treeView
    e un widget che consente di visualizzare i file \b m_sceneCastView.
    I suoi widget sono settati tramite un modello del tipo \b SceneCastModel.*/
-class CastBrowser final : public QSplitter, public DvItemListModel {
+class CastBrowser final : public QSplitter,
+                          public DvItemListModel,
+                          public SaveLoadQSettings {
   Q_OBJECT
 
   CastTreeViewer *m_treeViewer;
@@ -99,6 +102,9 @@ public:
   void showFolderContents();
   void viewFile();
   void viewFileInfo();
+
+  void save(QSettings &settings) const override;
+  void load(QSettings &settings) override;
 
 protected:
   bool dropMimeData(QTreeWidgetItem *parent, int index, const QMimeData *data,
