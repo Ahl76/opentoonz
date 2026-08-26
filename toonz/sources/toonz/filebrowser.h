@@ -325,6 +325,7 @@ private:
   bool getInfoPanelFile(TFilePath &path) const;
   void applyInfoPanelSize();
   int infoThumbPanelWidth() const;
+  int infoThumbBgMode() const;
   void updateInfoThumbnail(const TFilePath &fp);
   void setInfoThumbnailPixmap(const QPixmap &px);
 

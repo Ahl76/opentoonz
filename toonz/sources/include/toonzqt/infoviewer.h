@@ -6,6 +6,7 @@
 #include <memory>
 
 #include "toonzqt/dvdialog.h"
+#include "tfilepath.h"
 
 #undef DVAPI
 #undef DVVAR
@@ -33,6 +34,7 @@ public:
 
   void setEmbedded(bool embedded);
   bool isEmbedded() const { return m_embedded; }
+  TFrameId currentFrameId() const;
 
   QSize sizeHint() const override;
   QSize minimumSizeHint() const override;
@@ -44,6 +46,8 @@ protected slots:
   void onSliderChanged(bool);
 public slots:
   void setItem(const TLevelP &level, TPalette *palette, const TFilePath &path);
+signals:
+  void currentFrameChanged();
 };
 
 #endif

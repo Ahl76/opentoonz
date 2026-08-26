@@ -1115,9 +1115,7 @@ void DvItemViewerPanel::setThumbnailWidth(int width) {
 void DvItemViewerPanel::setThumbnailBgMode(ThumbnailBgMode mode) {
   if (m_thumbnailBgMode == mode) return;
   m_thumbnailBgMode = mode;
-  // Invalidate sized icons when the letterbox / fill mode changes.
   IconGenerator::instance()->clearRequests();
-  IconGenerator::instance()->purgeResponsiveFileIconsExcept(TDimension());
   if (m_itemViewPlayDelegate) m_itemViewPlayDelegate->resetPlayWidget();
   emit thumbnailBgModeChanged((int)mode);
   update();

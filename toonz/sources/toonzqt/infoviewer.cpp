@@ -102,6 +102,7 @@ public:
   void setGeneralFileInfo(const TFilePath &path);
   QString getTypeString();
   void onSliderChanged();
+  TFrameId currentFrameId() const;
   InfoViewerImp();
   ~InfoViewerImp();
   void clear();
@@ -287,7 +288,23 @@ void InfoViewer::hideEvent(QHideEvent *event) {
 }
 
 //----------------------------------------------------------------
-void InfoViewer::onSliderChanged(bool) { m_imp->onSliderChanged(); }
+void InfoViewer::onSliderChanged(bool) {
+  m_imp->onSliderChanged();
+  if (m_embedded) emit currentFrameChanged();
+}
+
+//----------------------------------------------------------------
+
+TFrameId InfoViewer::currentFrameId() const { return m_imp->currentFrameId(); }
+
+//----------------------------------------------------------------
+
+TFrameId InfoViewerImp::currentFrameId() const {
+  if (m_fids.empty() || m_currentIndex < 0 ||
+      m_currentIndex >= (int)m_fids.size())
+    return TFrameId::NO_FRAME;
+  return m_fids[m_currentIndex];
+}
 
 //----------------------------------------------------------------
 
