@@ -32,6 +32,8 @@ class VectorGuidedDrawingPane;
 class FxSelection;
 class StageObjectSelection;
 class LocatorPopup;
+class InfoViewer;
+class TFilePath;
 
 //=========================================================
 // PaletteViewerPanel
@@ -347,6 +349,22 @@ class VectorGuidedDrawingPanel final : public TPanel {
 public:
   VectorGuidedDrawingPanel(QWidget *parent);
 };
+
+//=========================================================
+// FileInfoPanel
+//---------------------------------------------------------
+
+class FileInfoPanel final : public TPanel {
+  Q_OBJECT
+
+  InfoViewer *m_infoViewer;
+
+public:
+  FileInfoPanel(QWidget *parent);
+  void setItem(const TFilePath &path);
+};
+
+void showFileInfoPanel(const TFilePath &path);
 
 //=========================================================
 // LocatorPanel

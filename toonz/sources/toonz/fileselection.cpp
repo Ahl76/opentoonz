@@ -15,11 +15,11 @@
 #include "separatecolorspopup.h"
 #include "tapp.h"
 #include "batches.h"
+#include "tpanels.h"
 
 // TnzQt includes
 #include "toonzqt/imageutils.h"
 #include "toonzqt/dvdialog.h"
-#include "toonzqt/infoviewer.h"
 #include "toonzqt/icongenerator.h"
 #include "toonzqt/gutil.h"
 #include "historytypes.h"
@@ -221,14 +221,6 @@ TPaletteP viewedPalette;
 
 FileSelection::FileSelection() {}
 
-FileSelection::~FileSelection() {
-  // Use deleteLater to safely delete InfoViewers, they will be cleaned up when
-  // the event loop runs.
-  for (auto &viewer : m_infoViewers) {
-    if (viewer) viewer->deleteLater();
-  }
-}
-
 //------------------------------------------------------------------------
 
 void FileSelection::getSelectedFiles(std::vector<TFilePath> &files) {
@@ -405,7 +397,7 @@ void FileSelection::showFolderContents() {
 }
 
 //------------------------------------------------------------------------
-// View file info (reuse hidden InfoViewers)
+// View file info
 //------------------------------------------------------------------------
 
 void FileSelection::viewFileInfo() {
@@ -413,31 +405,7 @@ void FileSelection::viewFileInfo() {
   getSelectedFiles(files);
   if (files.empty()) return;
 
-  // Remove any dead viewers from the list
-  m_infoViewers.erase(
-      std::remove_if(m_infoViewers.begin(), m_infoViewers.end(),
-                     [](const QPointer<InfoViewer> &v) { return v.isNull(); }),
-      m_infoViewers.end());
-
-  for (const TFilePath &fp : files) {
-    QPointer<InfoViewer> infoViewer = nullptr;
-
-    // Look for a hidden InfoViewer that can be reused
-    for (auto &v : m_infoViewers) {
-      if (v && v->isHidden()) {
-        infoViewer = v;
-        break;
-      }
-    }
-
-    if (!infoViewer) {
-      infoViewer = new InfoViewer();
-      m_infoViewers.append(infoViewer);
-    }
-
-    FileBrowserPopup::setModalBrowserToParent(infoViewer);
-    infoViewer->setItem(0, 0, fp);
-  }
+  for (const TFilePath &fp : files) showFileInfoPanel(fp);
 }
 
 //------------------------------------------------------------------------

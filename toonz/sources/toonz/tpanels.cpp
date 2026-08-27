@@ -21,6 +21,7 @@
 #include "castviewer.h"
 #include "filebrowser.h"
 #include "scenebrowser.h"
+#include "filebrowserpopup.h"
 #include "filmstrip.h"
 #include "previewfxmanager.h"
 #include "comboviewerpane.h"
@@ -61,6 +62,8 @@
 #include "toonzqt/tselectionhandle.h"
 #include "toonzqt/tmessageviewer.h"
 #include "toonzqt/scriptconsole.h"
+#include "toonzqt/infoviewer.h"
+#include "tlevel.h"
 #include "toonzqt/fxsettings.h"
 #include "toonzqt/fxselection.h"
 #include "stageobjectselection.h"
@@ -102,7 +105,10 @@
 
 // Qt includes
 #include <QAction>
+#include <QApplication>
 #include <QScreen>
+#include <QScrollArea>
+#include <QVBoxLayout>
 
 //=============================================================================
 // XsheetViewer
@@ -1724,6 +1730,104 @@ OpenFloatingPanel openFxBrowserCommand(MI_InsertFx, "FxBrowser",
                                        QObject::tr("Fx Browser"));
 
 //-----------------------------------------------------------------------------
+
+//=============================================================================
+// FileInfoPanel
+//-----------------------------------------------------------------------------
+
+FileInfoPanel::FileInfoPanel(QWidget *parent)
+    : TPanel(parent), m_infoViewer(nullptr) {
+  auto *scroll = new QScrollArea(this);
+  scroll->setWidgetResizable(true);
+  scroll->setFrameShape(QFrame::NoFrame);
+  scroll->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+
+  auto *host = new QWidget();
+  auto *lay  = new QVBoxLayout(host);
+  lay->setContentsMargins(0, 0, 0, 0);
+  lay->setAlignment(Qt::AlignTop);
+
+  m_infoViewer = new InfoViewer();
+  lay->addWidget(m_infoViewer, 0, Qt::AlignTop);
+  m_infoViewer->setEmbedded(true);
+  m_infoViewer->show();
+
+  scroll->setWidget(host);
+  setWidget(scroll);
+}
+
+void FileInfoPanel::setItem(const TFilePath &path) {
+  if (m_infoViewer) m_infoViewer->setItem(TLevelP(), nullptr, path);
+  const QString name =
+      QString::fromStdWString(path.withoutParentDir().getWideString());
+  if (name.isEmpty())
+    setWindowTitle(tr("File Info"));
+  else
+    setWindowTitle(tr("File Info") + QStringLiteral(" - ") + name);
+}
+
+void showFileInfoPanel(const TFilePath &path) {
+  for (QWidget *w : QApplication::topLevelWidgets()) {
+    if (w->isWindow() && w->isModal() && w->isVisible() &&
+        qobject_cast<FileBrowserPopup *>(w)) {
+      InfoViewer *viewer = new InfoViewer();
+      FileBrowserPopup::setModalBrowserToParent(viewer);
+      viewer->setItem(TLevelP(), nullptr, path);
+      return;
+    }
+  }
+
+  TMainWindow *room = TApp::instance()->getCurrentRoom();
+  if (!room) return;
+
+  FileInfoPanel *hidden = nullptr;
+  QPoint lastFloatingPos;
+  bool haveFloating = false;
+  const QList<TPanel *> panes = room->findChildren<TPanel *>();
+  for (TPanel *p : panes) {
+    if (p->getPanelType() != "FileInfo") continue;
+    if (p->isHidden()) {
+      if (!hidden) hidden = static_cast<FileInfoPanel *>(p);
+    } else if (p->isFloating()) {
+      lastFloatingPos = p->pos();
+      haveFloating    = true;
+    }
+  }
+
+  FileInfoPanel *panel = hidden;
+  if (panel) {
+    room->addDockWidget(panel);
+    panel->setFloating(true);
+    panel->show();
+    panel->raise();
+  } else {
+    TPanel *created =
+        TPanelFactory::createPanel(room, QStringLiteral("FileInfo"));
+    if (!created) return;
+    panel = static_cast<FileInfoPanel *>(created);
+    panel->restoreFloatingPanelState();
+    panel->setFloating(true);
+    if (haveFloating) panel->move(lastFloatingPos + QPoint(30, 30));
+    panel->show();
+    panel->raise();
+  }
+  panel->setItem(path);
+}
+
+class FileInfoFactory final : public TPanelFactory {
+public:
+  FileInfoFactory() : TPanelFactory("FileInfo") {}
+
+  TPanel *createPanel(QWidget *parent) override {
+    FileInfoPanel *panel = new FileInfoPanel(parent);
+    panel->setObjectName(getPanelType());
+    panel->setWindowTitle(QObject::tr("File Info"));
+    panel->resize(300, 500);
+    return panel;
+  }
+
+  void initialize(TPanel *panel) override { assert(0); }
+} fileInfoFactory;
 
 //=============================================================================
 // LocatorPanel

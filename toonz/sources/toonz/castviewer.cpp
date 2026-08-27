@@ -10,6 +10,7 @@
 #include "iocommand.h"
 #include "filmstripcommand.h"
 #include "flipbook.h"
+#include "tpanels.h"
 
 // TnzLib includes
 #include "toonz/tscenehandle.h"
@@ -27,7 +28,6 @@
 #include "toonzqt/gutil.h"
 #include "toonzqt/trepetitionguard.h"
 #include "toonzqt/icongenerator.h"
-#include "toonzqt/infoviewer.h"
 #include "historytypes.h"
 
 // TnzCore includes
@@ -925,14 +925,12 @@ void CastBrowser::viewFileInfo() {
       filePath = levels[i]->getPath();
 
       filePath = scene->decodeFilePath(filePath);
-      if (!TSystem::doesExistFileOrLevel(filePath)) {
+      if (TSystem::doesExistFileOrLevel(filePath))
+        showFileInfoPanel(filePath);
+      else {
         error(
             tr("It is not possible to show the info of the selected file, as "
                "the file has not been saved yet."));
-      } else {
-        InfoViewer *infoViewer = 0;
-        infoViewer             = new InfoViewer(this);
-        infoViewer->setItem(0, 0, filePath);
       }
     }
   }

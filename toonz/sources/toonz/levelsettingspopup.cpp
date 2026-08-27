@@ -9,13 +9,13 @@
 #include "fileviewerpopup.h"
 #include "castselection.h"
 #include "fileselection.h"
+#include "tpanels.h"
 #include "columnselection.h"
 #include "levelcommand.h"
 
 // TnzQt includes
 #include "toonzqt/menubarcommand.h"
 #include "toonzqt/gutil.h"
-#include "toonzqt/infoviewer.h"
 #include "toonzqt/filefield.h"
 #include "toonzqt/doublefield.h"
 #include "toonzqt/intfield.h"
@@ -1713,11 +1713,7 @@ public:
         TFilePath path = selectedLevels[i]->getPath();
         path           = selectedLevels[i]->getScene()->decodeFilePath(path);
 
-        if (TSystem::doesExistFileOrLevel(path)) {
-          InfoViewer *infoViewer = 0;
-          infoViewer             = new InfoViewer();
-          infoViewer->setItem(0, 0, path);
-        }
+        if (TSystem::doesExistFileOrLevel(path)) showFileInfoPanel(path);
       }
     }
   }
