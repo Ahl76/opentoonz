@@ -13,6 +13,7 @@
 #include <QSet>
 #include <QHash>
 #include <QString>
+#include <QStringList>
 #include <functional>
 
 #include "dvitemview.h"
@@ -47,6 +48,10 @@ public:
   void setFavorite(const TFilePath &path, bool on);
   void toggleFavorite(const TFilePath &path);
 
+  bool isPinnedFolder(const TFilePath &path) const;
+  void setPinnedFolder(const TFilePath &path, bool on);
+  QStringList pinnedFolders() const;
+
 private:
   BrowserFileSettings();
   void ensureLoaded();
@@ -56,6 +61,7 @@ private:
 
   QHash<QString, int> m_bgOverrides;
   QSet<QString> m_favorites;
+  QStringList m_pinnedFolders;
 };
 
 class QMenu;

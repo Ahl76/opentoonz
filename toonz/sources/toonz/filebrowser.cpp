@@ -144,6 +144,7 @@ QString BrowserFileSettings::pathKey(const TFilePath &path) {
 void BrowserFileSettings::load() {
   m_bgOverrides.clear();
   m_favorites.clear();
+  m_pinnedFolders.clear();
   const TFilePath fp =
       ToonzFolder::getMyModuleDir() + TFilePath("BrowserFileSettings.ini");
   QSettings settings(toQString(fp), QSettings::IniFormat);
@@ -158,6 +159,11 @@ void BrowserFileSettings::load() {
   for (const QVariant &v :
        settings.value(QStringLiteral("Favorites")).toList())
     m_favorites.insert(v.toString());
+  for (const QVariant &v :
+       settings.value(QStringLiteral("PinnedFolders")).toList()) {
+    const QString s = v.toString();
+    if (!s.isEmpty() && !m_pinnedFolders.contains(s)) m_pinnedFolders.append(s);
+  }
 }
 
 void BrowserFileSettings::save() const {
@@ -175,6 +181,9 @@ void BrowserFileSettings::save() const {
   QList<QVariant> favVar;
   for (const QString &s : favList) favVar.append(s);
   settings.setValue(QStringLiteral("Favorites"), favVar);
+  QList<QVariant> pinVar;
+  for (const QString &s : m_pinnedFolders) pinVar.append(s);
+  settings.setValue(QStringLiteral("PinnedFolders"), pinVar);
 }
 
 int BrowserFileSettings::thumbnailBgOverride(const TFilePath &path) const {
@@ -215,6 +224,27 @@ void BrowserFileSettings::setFavorite(const TFilePath &path, bool on) {
 
 void BrowserFileSettings::toggleFavorite(const TFilePath &path) {
   setFavorite(path, !isFavorite(path));
+}
+
+bool BrowserFileSettings::isPinnedFolder(const TFilePath &path) const {
+  BrowserFileSettings::instance()->ensureLoaded();
+  return m_pinnedFolders.contains(pathKey(path));
+}
+
+void BrowserFileSettings::setPinnedFolder(const TFilePath &path, bool on) {
+  ensureLoaded();
+  const QString key = pathKey(path);
+  if (key.isEmpty()) return;
+  if (on) {
+    if (!m_pinnedFolders.contains(key)) m_pinnedFolders.append(key);
+  } else
+    m_pinnedFolders.removeAll(key);
+  save();
+}
+
+QStringList BrowserFileSettings::pinnedFolders() const {
+  BrowserFileSettings::instance()->ensureLoaded();
+  return m_pinnedFolders;
 }
 
 //-----------------------------------------------------------------------------

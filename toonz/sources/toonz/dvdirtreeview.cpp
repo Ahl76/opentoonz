@@ -31,6 +31,7 @@
 #include <QHostInfo>
 #include <QUrl>
 #include <QDir>
+#include <QMenu>
 #include <QMimeData>
 #include <QFileSystemWatcher>
 #include <QRegularExpression>
@@ -584,6 +585,32 @@ void DvDirTreeView::contextMenuEvent(QContextMenuEvent *e) {
         connect(action, &QAction::triggered, this,
                 &DvDirTreeView::purgeCurrentVersionControlNode);
       }
+    }
+  }
+
+  if (auto *folderNode = dynamic_cast<DvDirModelFileFolderNode *>(node)) {
+    const TFilePath path = folderNode->getPath();
+    if (!path.isEmpty() && TFileStatus(path).isDirectory()) {
+      if (!menu.isEmpty()) menu.addSeparator();
+      const bool pinned =
+          BrowserFileSettings::instance()->isPinnedFolder(path);
+      QAction *pinAct = menu.addAction(
+          createQIcon("star"),
+          pinned ? tr("Unpin from Favorites") : tr("Pin to Favorites"));
+      connect(pinAct, &QAction::triggered, this, [this, path, pinned]() {
+        BrowserFileSettings::instance()->setPinnedFolder(path, !pinned);
+        auto *root = dynamic_cast<DvDirModelRootNode *>(
+            DvDirModel::instance()->getNode(QModelIndex()));
+        if (!root) return;
+        root->refreshPinnedFolders();
+        QModelIndex fav = DvDirModel::instance()->getIndexByNode(
+            root->getFavoritesNode());
+        if (!fav.isValid()) return;
+        if (!pinned)
+          expand(fav);
+        else
+          setCurrentIndex(fav);
+      });
     }
   }
 

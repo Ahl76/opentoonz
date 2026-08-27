@@ -779,6 +779,38 @@ QPixmap DvDirModelHistoryNode::getPixmap(bool isOpen) const {
 }
 
 //=============================================================================
+// DvDirModelFavoritesNode implementation
+//-----------------------------------------------------------------------------
+
+DvDirModelFavoritesNode::DvDirModelFavoritesNode(DvDirModelNode *parent)
+    : DvDirModelNode(parent, L"Favorites") {
+  m_nodeType = "Favorites";
+}
+
+void DvDirModelFavoritesNode::refreshChildren() {
+  clearPointerContainer(m_children);
+  m_childrenValid = true;
+  const QStringList pins = BrowserFileSettings::instance()->pinnedFolders();
+  for (const QString &s : pins) {
+    const TFilePath fp(s.toStdWString());
+    if (fp.isEmpty()) continue;
+    std::wstring name = fp.withoutParentDir().getWideString();
+    if (name.empty()) name = fp.getWideString();
+    auto *child = new DvDirModelSpecialFileFolderNode(this, name, fp);
+    addChild(child);
+  }
+}
+
+bool DvDirModelFavoritesNode::hasChildren() {
+  if (!m_childrenValid) refreshChildren();
+  return !m_children.empty();
+}
+
+QPixmap DvDirModelFavoritesNode::getPixmap(bool isOpen) const {
+  return createQIcon("star").pixmap(QSize(16, 16));
+}
+
+//=============================================================================
 // DvDirModelMyComputerNode implementation
 //-----------------------------------------------------------------------------
 
@@ -898,7 +930,9 @@ DvDirModelRootNode::DvDirModelRootNode()
     : DvDirModelNode(nullptr, L"Root")
     , m_myComputerNode(nullptr)
     , m_networkNode(nullptr)
-    , m_sandboxProjectNode(nullptr) {
+    , m_sandboxProjectNode(nullptr)
+    , m_sceneFolderNode(nullptr)
+    , m_favoritesNode(nullptr) {
   m_nodeType = "Root";
 }
 
@@ -911,6 +945,7 @@ void DvDirModelRootNode::add(std::wstring name, const TFilePath &path) {
 void DvDirModelRootNode::refreshChildren() {
   m_childrenValid = true;
   if (m_children.empty()) {
+    addChild(m_favoritesNode = new DvDirModelFavoritesNode(this));
     addChild(m_myComputerNode = new DvDirModelMyComputerNode(this));
 
 #ifdef _WIN32
@@ -1062,6 +1097,13 @@ DvDirModelNode *DvDirModelRootNode::getNodeByPath(const TFilePath &path) {
     if (node) return node;
   }
 
+  if (m_favoritesNode) {
+    for (int i = 0; i < m_favoritesNode->getChildCount(); i++) {
+      DvDirModelNode *node = m_favoritesNode->getChild(i)->getNodeByPath(path);
+      if (node) return node;
+    }
+  }
+
   // it could be a regular folder, somewhere in the file system
   if (m_myComputerNode) {
     for (i = 0; i < m_myComputerNode->getChildCount(); i++) {
@@ -1116,6 +1158,12 @@ void DvDirModelRootNode::updateSceneFolderNodeVisibility(bool forceHide) {
     DvDirModel::instance()->notifyEndRemoveRows();
     m_sceneFolderNode->setRow(-1);
   }
+}
+
+void DvDirModelRootNode::refreshPinnedFolders() {
+  if (!m_favoritesNode) return;
+  QModelIndex index = DvDirModel::instance()->getIndexByNode(m_favoritesNode);
+  DvDirModel::instance()->refresh(index);
 }
 
 //=============================================================================

@@ -289,6 +289,16 @@ public:
 
 //-----------------------------------------------------------------------------
 
+class DvDirModelFavoritesNode final : public DvDirModelNode {
+public:
+  DvDirModelFavoritesNode(DvDirModelNode *parent);
+  void refreshChildren() override;
+  bool hasChildren() override;
+  QPixmap getPixmap(bool isOpen) const override;
+};
+
+//-----------------------------------------------------------------------------
+
 class DvDirModelMyComputerNode final : public DvDirModelNode {
 public:
   DvDirModelMyComputerNode(DvDirModelNode *parent);
@@ -317,6 +327,7 @@ class DvDirModelRootNode final : public DvDirModelNode {
   DvDirModelNetworkNode *m_networkNode;
   DvDirModelProjectNode *m_sandboxProjectNode;
   DvDirModelSceneFolderNode *m_sceneFolderNode;
+  DvDirModelFavoritesNode *m_favoritesNode;
   std::vector<DvDirModelSpecialFileFolderNode *> m_specialNodes;
 
   void add(std::wstring name, const TFilePath &path);
@@ -324,6 +335,8 @@ class DvDirModelRootNode final : public DvDirModelNode {
 public:
   DvDirModelRootNode();
   void refreshChildren() override;
+  void refreshPinnedFolders();
+  DvDirModelFavoritesNode *getFavoritesNode() const { return m_favoritesNode; }
 
   DvDirModelNode *getNodeByPath(const TFilePath &path) override;
   // QPixmap getPixmap(bool isOpen) const;
