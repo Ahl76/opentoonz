@@ -594,7 +594,7 @@ void DvDirTreeView::contextMenuEvent(QContextMenuEvent *e) {
       if (!menu.isEmpty()) menu.addSeparator();
       const bool pinned = BrowserFileSettings::instance()->isPinnedFolder(path);
       QAction *pinAct   = menu.addAction(
-          createQIcon("star"),
+            createQIcon("star"),
           pinned ? tr("Unpin from Favorites") : tr("Pin to Favorites"));
       connect(pinAct, &QAction::triggered, this, [this, path, pinned]() {
         BrowserFileSettings::instance()->setPinnedFolder(path, !pinned);

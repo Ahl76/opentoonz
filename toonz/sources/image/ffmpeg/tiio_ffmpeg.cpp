@@ -603,14 +603,18 @@ void Ffmpeg::getFramesFromMovie(int frame) {
     QStringList postIFrameArgs;
     if (frame == -1) {
       // Extract every frame (legacy / bulk decode).
-      postIFrameArgs << "-y" << "-f" << "image2" << tempName;
+      postIFrameArgs << "-y"
+                     << "-f"
+                     << "image2" << tempName;
     } else {
       // Single-frame extract: decoding the whole movie is too slow for
       // browser / filmstrip thumbnails.
       if (frame > 1) {
         postIFrameArgs << "-vf" << QString("select=eq(n\\,%1)").arg(frame - 1);
       }
-      postIFrameArgs << "-frames:v" << "1" << "-y" << tempStart;
+      postIFrameArgs << "-frames:v"
+                     << "1"
+                     << "-y" << tempStart;
     }
 
     runFfmpeg(preIFrameArgs, postIFrameArgs, true, true, true, false);
