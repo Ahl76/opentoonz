@@ -56,20 +56,20 @@
 #include <stdint.h>  // for uint64_t
 
 namespace {
-const int kBrowserIconQuantStep    = 16;
+const int kBrowserIconQuantStep = 16;
 // Debounce HD regen while scrubbing the size control.
 const int kBrowserRenderDebounceMs = 280;
 const int kBrowserThumbMinWidth    = 40;
 const int kBrowserThumbMaxWidth    = 400;
 const int kBrowserThumbDefaultW    = 80;
 const int kBrowserThumbDefaultH    = 60;
-const int kBrowserBlockSepPad = 6;
-const int kBrowserIconGap = 4;
+const int kBrowserBlockSepPad      = 6;
+const int kBrowserIconGap          = 4;
 
 QColor browserBlockSepColor(const QWidget *widget) {
   if (!widget) return QColor(0x4f, 0x4f, 0x4f);
-  const QPalette pal = widget->palette();
-  const QColor bgWin = pal.color(QPalette::Window);
+  const QPalette pal     = widget->palette();
+  const QColor bgWin     = pal.color(QPalette::Window);
   const bool lightChrome = bgWin.lightness() > 120;
   if (lightChrome) return pal.color(QPalette::Text).darker(118);
   const QColor mid = pal.color(QPalette::Mid);
@@ -129,8 +129,8 @@ protected:
 
     const QFontMetrics fm(font);
     const QRect tight = fm.tightBoundingRect(m_label);
-    const int cx = iconRect.center().x();
-    const int cy = iconRect.top() + qRound(iconRect.height() * 0.55);
+    const int cx      = iconRect.center().x();
+    const int cy      = iconRect.top() + qRound(iconRect.height() * 0.55);
     QRect target(0, 0, qMax(tight.width() + 2, 8), qMax(tight.height() + 2, 8));
     target.moveCenter(QPoint(cx, cy));
     p.drawText(target, Qt::AlignCenter, m_label);
@@ -165,10 +165,10 @@ void applyBrowserSearchPlaceholderStyle(QLineEdit *edit) {
 
   const QColor hint = browserSearchPlaceholderColor(edit->palette());
   if (hint.isValid()) {
-    const QString rule = edit->objectName().isEmpty()
-                             ? QStringLiteral("QLineEdit::placeholder")
-                             : QStringLiteral("#%1::placeholder")
-                                   .arg(edit->objectName());
+    const QString rule =
+        edit->objectName().isEmpty()
+            ? QStringLiteral("QLineEdit::placeholder")
+            : QStringLiteral("#%1::placeholder").arg(edit->objectName());
     const QString sheet = QStringLiteral("%1 { color: %2; }")
                               .arg(rule, hint.name(QColor::HexRgb));
     if (edit->styleSheet() != sheet) edit->setStyleSheet(sheet);
@@ -181,20 +181,21 @@ void applyBrowserSearchPlaceholderStyle(QLineEdit *edit) {
 
 // GUI Show/Hide parts (Viewer-style bit flags).
 enum BrowserAdvancedGuiPart {
-  AGUI_SizeSlider      = 0x01,
-  AGUI_SizeMenu        = 0x02,
-  AGUI_Background      = 0x04,
-  AGUI_TypeFilters     = 0x08,
-  AGUI_Search          = 0x10,
-  AGUI_PlayFps         = 0x20,
-  AGUI_TypeFilterList  = 0x40,
-  AGUI_Favorites       = 0x80,
-  AGUI_FavoriteStars   = 0x100,
-  AGUI_ProjectFolders  = 0x200,
-  AGUI_InfoPanel       = 0x400,
-  AGUI_All = AGUI_SizeSlider | AGUI_SizeMenu | AGUI_Background | AGUI_TypeFilters |
-             AGUI_Search | AGUI_PlayFps | AGUI_TypeFilterList | AGUI_Favorites |
-             AGUI_FavoriteStars | AGUI_ProjectFolders | AGUI_InfoPanel,
+  AGUI_SizeSlider     = 0x01,
+  AGUI_SizeMenu       = 0x02,
+  AGUI_Background     = 0x04,
+  AGUI_TypeFilters    = 0x08,
+  AGUI_Search         = 0x10,
+  AGUI_PlayFps        = 0x20,
+  AGUI_TypeFilterList = 0x40,
+  AGUI_Favorites      = 0x80,
+  AGUI_FavoriteStars  = 0x100,
+  AGUI_ProjectFolders = 0x200,
+  AGUI_InfoPanel      = 0x400,
+  AGUI_All            = AGUI_SizeSlider | AGUI_SizeMenu | AGUI_Background |
+             AGUI_TypeFilters | AGUI_Search | AGUI_PlayFps |
+             AGUI_TypeFilterList | AGUI_Favorites | AGUI_FavoriteStars |
+             AGUI_ProjectFolders | AGUI_InfoPanel,
 };
 
 TEnv::IntVar BrowserView("BrowserView", 1);
@@ -234,7 +235,8 @@ void drawFavoriteStar(QPainter &p, const QRect &rect) {
   for (int i = 0; i < 10; ++i) {
     const qreal angle  = M_PI * i / 5.0 - M_PI_2;
     const qreal radius = (i % 2 == 0) ? r : r * 0.42;
-    star << QPointF(cx + radius * std::cos(angle), cy + radius * std::sin(angle));
+    star << QPointF(cx + radius * std::cos(angle),
+                    cy + radius * std::sin(angle));
   }
   p.setPen(Qt::NoPen);
   p.setBrush(QColor(255, 190, 0));
@@ -594,14 +596,12 @@ void ItemViewPlayWidget::PlayManager::reset() {
 QPixmap ItemViewPlayWidget::PlayManager::fetchFramePixmap(const TFrameId &fid,
                                                           bool) {
   QPixmap pixmap;
-  const bool wantHd =
-      m_renderSize.width() > 0 && m_renderSize.height() > 0 &&
-      (m_renderSize.width() > 80 || m_renderSize.height() > 60);
+  const bool wantHd = m_renderSize.width() > 0 && m_renderSize.height() > 0 &&
+                      (m_renderSize.width() > 80 || m_renderSize.height() > 60);
   if (wantHd) {
     const qreal dpr = qMax(1.0, m_dpr);
-    const TDimension dim(
-        qMax(1, qRound(m_renderSize.width() * dpr)),
-        qMax(1, qRound(m_renderSize.height() * dpr)));
+    const TDimension dim(qMax(1, qRound(m_renderSize.width() * dpr)),
+                         qMax(1, qRound(m_renderSize.height() * dpr)));
     const TFrameId reqFid =
         (fid == TFrameId::NO_FRAME || m_currentFidIndex == 0)
             ? TFrameId::NO_FRAME
@@ -640,23 +640,22 @@ void ItemViewPlayWidget::PlayManager::setInfo(DvItemListModel *model, int index,
   }
 
   reset();
-  m_iconSize       = layoutSize.isEmpty() ? QSize(80, 60) : layoutSize;
-  m_renderSize     = renderSize.isEmpty() ? m_iconSize : renderSize;
-  m_browserBgMode  = browserBgMode;
-  m_dpr            = dpr;
-  m_pixmap = QPixmap();
-  m_path   = path;
+  m_iconSize      = layoutSize.isEmpty() ? QSize(80, 60) : layoutSize;
+  m_renderSize    = renderSize.isEmpty() ? m_iconSize : renderSize;
+  m_browserBgMode = browserBgMode;
+  m_dpr           = dpr;
+  m_pixmap        = QPixmap();
+  m_path          = path;
   getFileFids(m_path, m_fids);
 }
 
 //-----------------------------------------------------------------------------
 
 bool ItemViewPlayWidget::PlayManager::increaseCurrentFrame() {
-  const TFrameId fid =
-      (m_currentFidIndex == 0 || m_fids.empty())
-          ? TFrameId::NO_FRAME
-          : m_fids[m_currentFidIndex];
-  QPixmap pixmap = fetchFramePixmap(fid, true);
+  const TFrameId fid = (m_currentFidIndex == 0 || m_fids.empty())
+                           ? TFrameId::NO_FRAME
+                           : m_fids[m_currentFidIndex];
+  QPixmap pixmap     = fetchFramePixmap(fid, true);
   if (pixmap.isNull())
     return false;  // Se non ha ancora finito di calcolare l'icona ritorno
   assert(!m_iconSize.isEmpty());
@@ -669,11 +668,10 @@ bool ItemViewPlayWidget::PlayManager::increaseCurrentFrame() {
 //-----------------------------------------------------------------------------
 
 bool ItemViewPlayWidget::PlayManager::getCurrentFrame() {
-  const TFrameId fid =
-      (m_currentFidIndex == 0 || m_fids.empty())
-          ? TFrameId::NO_FRAME
-          : m_fids[m_currentFidIndex];
-  QPixmap pixmap = fetchFramePixmap(fid, false);
+  const TFrameId fid = (m_currentFidIndex == 0 || m_fids.empty())
+                           ? TFrameId::NO_FRAME
+                           : m_fids[m_currentFidIndex];
+  QPixmap pixmap     = fetchFramePixmap(fid, false);
   if (pixmap.isNull())
     return false;  // Se non ha ancora finito di calcolare l'icona ritorno
   assert(!m_iconSize.isEmpty());
@@ -741,8 +739,8 @@ void ItemViewPlayWidget::play() {
   int fps = 10;  // legacy default → 100 ms (preserves prior behavior)
   if (auto *panel = qobject_cast<DvItemViewerPanel *>(parentWidget()))
     fps = panel->getPlayFps();
-  fps         = qBound(1, fps, 120);
-  m_timerId   = startTimer(qMax(1, 1000 / fps));
+  fps       = qBound(1, fps, 120);
+  m_timerId = startTimer(qMax(1, 1000 / fps));
 }
 
 //-----------------------------------------------------------------------------
@@ -862,9 +860,8 @@ void ItemViewPlayWidget::paint(QPainter *painter, QRect rect) {
     QPixmap scaled = pixmap.scaled(dest.size() * dpr, Qt::KeepAspectRatio,
                                    Qt::SmoothTransformation);
     scaled.setDevicePixelRatio(dpr);
-    QRect centered(QPoint(0, 0),
-                   QSize(qRound(scaled.width() / dpr),
-                         qRound(scaled.height() / dpr)));
+    QRect centered(QPoint(0, 0), QSize(qRound(scaled.width() / dpr),
+                                       qRound(scaled.height() / dpr)));
     centered.moveCenter(dest.center());
     painter->drawPixmap(centered.topLeft(), scaled);
   }
@@ -1046,25 +1043,23 @@ DvItemViewerPanel::DvItemViewerPanel(DvItemViewer *viewer, bool noContextMenu,
       isCast ? (bool)CastAdvancedDisplay : (bool)BrowserAdvancedDisplay;
   m_playFps = isCast ? (int)CastPlayFps : (int)BrowserPlayFps;
   if (m_playFps < 1) m_playFps = 10;
-  m_playLoop =
-      isCast ? ((int)CastPlayLoop != 0) : ((int)BrowserPlayLoop != 0);
-  const int bg =
-      isCast ? (int)CastThumbnailBg : (int)BrowserThumbnailBg;
-  m_thumbnailBgMode = (ThumbnailBgMode)std::max(
-      0, std::min(bg, (int)BgAuto));
+  m_playLoop = isCast ? ((int)CastPlayLoop != 0) : ((int)BrowserPlayLoop != 0);
+  const int bg      = isCast ? (int)CastThumbnailBg : (int)BrowserThumbnailBg;
+  m_thumbnailBgMode = (ThumbnailBgMode)std::max(0, std::min(bg, (int)BgAuto));
   const int width =
       isCast ? (int)CastThumbnailWidth : (int)BrowserThumbnailWidth;
   if (m_advancedDisplay) {
-    m_iconSize             = sizeFromWidth(width);
-    m_renderIconSize       = quantizeRenderSize(m_iconSize);
-    m_prevRenderIconSize   = m_renderIconSize;
+    m_iconSize           = sizeFromWidth(width);
+    m_renderIconSize     = quantizeRenderSize(m_iconSize);
+    m_prevRenderIconSize = m_renderIconSize;
   }
 }
 
 //-----------------------------------------------------------------------------
 
 QSize DvItemViewerPanel::sizeFromWidth(int width) {
-  width = std::max(kBrowserThumbMinWidth, std::min(width, kBrowserThumbMaxWidth));
+  width =
+      std::max(kBrowserThumbMinWidth, std::min(width, kBrowserThumbMaxWidth));
   const int height =
       std::max(1, width * kBrowserThumbDefaultH / kBrowserThumbDefaultW);
   return QSize(width, height);
@@ -1077,14 +1072,12 @@ QSize DvItemViewerPanel::quantizeRenderSize(const QSize &layout) {
     return QSize(kBrowserThumbDefaultW, kBrowserThumbDefaultH);
   auto quantize = [](int v) {
     if (v <= 0) return 1;
-    const int q =
-        ((v + kBrowserIconQuantStep / 2) / kBrowserIconQuantStep) *
-        kBrowserIconQuantStep;
+    const int q = ((v + kBrowserIconQuantStep / 2) / kBrowserIconQuantStep) *
+                  kBrowserIconQuantStep;
     return std::max(kBrowserIconQuantStep, q);
   };
   const int w = quantize(layout.width());
-  const int h =
-      std::max(1, w * kBrowserThumbDefaultH / kBrowserThumbDefaultW);
+  const int h = std::max(1, w * kBrowserThumbDefaultH / kBrowserThumbDefaultW);
   return QSize(w, h);
 }
 
@@ -1098,9 +1091,8 @@ void DvItemViewerPanel::setIconSize(QSize size) {
   int anchorIndex = -1;
   if (m_viewer && m_viewType == ThumbnailView) {
     const QPoint viewCenter = m_viewer->viewport()->rect().center();
-    const QPoint contentPos =
-        mapFrom(m_viewer->viewport(), viewCenter);
-    anchorIndex = pos2index(contentPos);
+    const QPoint contentPos = mapFrom(m_viewer->viewport(), viewCenter);
+    anchorIndex             = pos2index(contentPos);
   }
 
   m_iconSize = size;
@@ -1155,15 +1147,14 @@ void DvItemViewerPanel::setAdvancedDisplay(bool on) {
     IconGenerator::instance()->clearRequests();
     IconGenerator::instance()->purgeResponsiveFileIconsExcept(TDimension());
   } else {
-    const bool isCast = m_viewer && m_viewer->m_windowType == DvItemViewer::Cast;
+    const bool isCast =
+        m_viewer && m_viewer->m_windowType == DvItemViewer::Cast;
     const int width =
         isCast ? (int)CastThumbnailWidth : (int)BrowserThumbnailWidth;
     m_iconSize = sizeFromWidth(width > 0 ? width : kBrowserThumbDefaultW);
     commitRenderIconSize();
-    const int bg =
-        isCast ? (int)CastThumbnailBg : (int)BrowserThumbnailBg;
-    m_thumbnailBgMode = (ThumbnailBgMode)std::max(
-        0, std::min(bg, (int)BgAuto));
+    const int bg      = isCast ? (int)CastThumbnailBg : (int)BrowserThumbnailBg;
+    m_thumbnailBgMode = (ThumbnailBgMode)std::max(0, std::min(bg, (int)BgAuto));
   }
   if (m_viewer) m_viewer->updateContentSize();
   emit advancedDisplayChanged(on);
@@ -1177,7 +1168,7 @@ void DvItemViewerPanel::setAdvancedDisplay(bool on) {
 void DvItemViewerPanel::setPlayFps(int fps) {
   fps = qBound(1, fps, 120);
   if (m_playFps == fps) return;
-  m_playFps = fps;
+  m_playFps         = fps;
   const bool isCast = m_viewer && m_viewer->m_windowType == DvItemViewer::Cast;
   if (isCast)
     CastPlayFps = fps;
@@ -1191,7 +1182,7 @@ void DvItemViewerPanel::setPlayFps(int fps) {
 
 void DvItemViewerPanel::setPlayLoop(bool loop) {
   if (m_playLoop == loop) return;
-  m_playLoop            = loop;
+  m_playLoop        = loop;
   const bool isCast = m_viewer && m_viewer->m_windowType == DvItemViewer::Cast;
   if (isCast)
     CastPlayLoop = loop ? 1 : 0;
@@ -1238,9 +1229,9 @@ void DvItemViewerPanel::scheduleRenderSizeCommit() {
 //-----------------------------------------------------------------------------
 
 void DvItemViewerPanel::commitRenderIconSize() {
-  const QSize next =
-      m_advancedDisplay ? quantizeRenderSize(m_iconSize)
-                        : QSize(kBrowserThumbDefaultW, kBrowserThumbDefaultH);
+  const QSize next = m_advancedDisplay
+                         ? quantizeRenderSize(m_iconSize)
+                         : QSize(kBrowserThumbDefaultW, kBrowserThumbDefaultH);
   if (next == m_renderIconSize) {
     update();
     return;
@@ -1592,9 +1583,8 @@ void DvItemViewerPanel::paintThumbnailItem(QPainter &p, int index) {
   if (!isFolder) fillThumbnailBackground(p, iconRect, thumbBg);
 
   // Skip the static thumb while play frames are shown.
-  const bool playingHere =
-      !m_isPlayDelegateDisable && m_itemViewPlayDelegate &&
-      m_itemViewPlayDelegate->isIndexPlaying(index);
+  const bool playingHere = !m_isPlayDelegateDisable && m_itemViewPlayDelegate &&
+                           m_itemViewPlayDelegate->isIndexPlaying(index);
 
   // Draw Pixmap
   // if(status != DvItemListModel::VC_Missing)
@@ -1615,14 +1605,13 @@ void DvItemViewerPanel::paintThumbnailItem(QPainter &p, int index) {
         p.drawPixmap(iconRect.topLeft(), thumbnail);
       } else {
         // Scale cached thumb into the live cell while HD regenerates.
-        const QPixmap scaled = thumbnail.scaled(
-            iconRect.size() * dpr, Qt::KeepAspectRatio,
-            Qt::SmoothTransformation);
+        const QPixmap scaled =
+            thumbnail.scaled(iconRect.size() * dpr, Qt::KeepAspectRatio,
+                             Qt::SmoothTransformation);
         QPixmap drawPm = scaled;
         drawPm.setDevicePixelRatio(dpr);
-        QRect dest(QPoint(0, 0),
-                   QSize(qRound(drawPm.width() / dpr),
-                         qRound(drawPm.height() / dpr)));
+        QRect dest(QPoint(0, 0), QSize(qRound(drawPm.width() / dpr),
+                                       qRound(drawPm.height() / dpr)));
         dest.moveCenter(iconRect.center());
         p.drawPixmap(dest.topLeft(), drawPm);
       }
@@ -2678,20 +2667,20 @@ void DvItemViewerButtonBar::refreshAdvancedControlsVisibility() {
     return advancedOn && (m_guiPartsFlag & part);
   };
 
-  const bool showSlider = partOn(AGUI_SizeSlider);
-  const bool showMenu   = partOn(AGUI_SizeMenu);
-  const bool showBg     = partOn(AGUI_Background);
-  const bool showTypeIcons = partOn(AGUI_TypeFilters) && isBrowser;
-  const bool showTypeList  = partOn(AGUI_TypeFilterList) && isBrowser;
-  const bool showTypes     = showTypeIcons || showTypeList;
-  const bool showSearch    = partOn(AGUI_Search) && isBrowser;
-  const bool showFavorites = partOn(AGUI_Favorites) && isBrowser;
-  const bool showFps       = partOn(AGUI_PlayFps) && isBrowser;
+  const bool showSlider         = partOn(AGUI_SizeSlider);
+  const bool showMenu           = partOn(AGUI_SizeMenu);
+  const bool showBg             = partOn(AGUI_Background);
+  const bool showTypeIcons      = partOn(AGUI_TypeFilters) && isBrowser;
+  const bool showTypeList       = partOn(AGUI_TypeFilterList) && isBrowser;
+  const bool showTypes          = showTypeIcons || showTypeList;
+  const bool showSearch         = partOn(AGUI_Search) && isBrowser;
+  const bool showFavorites      = partOn(AGUI_Favorites) && isBrowser;
+  const bool showFps            = partOn(AGUI_PlayFps) && isBrowser;
   const bool showProjectFolders = partOn(AGUI_ProjectFolders) && isBrowser;
   const bool showInfoPanel      = partOn(AGUI_InfoPanel) && isBrowser;
-  const bool anyPart = showSlider || showMenu || showBg || showTypes || showSearch ||
-                       showFavorites || showFps || showProjectFolders ||
-                       showInfoPanel;
+  const bool anyPart = showSlider || showMenu || showBg || showTypes ||
+                       showSearch || showFavorites || showFps ||
+                       showProjectFolders || showInfoPanel;
 
   // Keep the advanced cluster centered (spacers left and right).
   if (m_leftSpacerAct) m_leftSpacerAct->setVisible(anyPart);
@@ -2716,8 +2705,7 @@ void DvItemViewerButtonBar::refreshAdvancedControlsVisibility() {
   if (m_typeFilterListGap) m_typeFilterListGap->setVisible(showTypeList);
   const bool showAfterTypes =
       showTypeList || showFavorites || showFps || showSearch;
-  if (m_searchSep)
-    m_searchSep->setVisible(showTypeIcons && showAfterTypes);
+  if (m_searchSep) m_searchSep->setVisible(showTypeIcons && showAfterTypes);
   if (m_favoritesFilterAct) m_favoritesFilterAct->setVisible(showFavorites);
   if (m_favoritesFilterGap) m_favoritesFilterGap->setVisible(showFavorites);
   if (m_fpsAct) m_fpsAct->setVisible(showFps);
@@ -2734,7 +2722,7 @@ void DvItemViewerButtonBar::refreshAdvancedControlsVisibility() {
 
 namespace {
 // Project subfolder order (see stuff/profiles/project_folders.txt).
-const char *kProjectFolderOrder[] = {"drawings", "extras",  "inputs", "outputs",
+const char *kProjectFolderOrder[] = {"drawings", "extras", "inputs", "outputs",
                                      "palettes", "scenes", "scripts"};
 constexpr int kProjectFolderCount =
     int(sizeof(kProjectFolderOrder) / sizeof(kProjectFolderOrder[0]));
@@ -2790,7 +2778,8 @@ void DvItemViewerButtonBar::setProjectFolderShortcuts(
   const bool isBrowser =
       m_itemViewer && m_itemViewer->m_windowType == DvItemViewer::Browser;
   const bool show = isBrowser && isAdvancedDisplayOn() &&
-                    (m_guiPartsFlag & AGUI_ProjectFolders) && !folders.isEmpty();
+                    (m_guiPartsFlag & AGUI_ProjectFolders) &&
+                    !folders.isEmpty();
 
   clearLayoutWidgets(m_projectFolderHost->layout());
 
@@ -2872,12 +2861,12 @@ void DvItemViewerButtonBar::buildAdvancedControls() {
   m_sizeSlider->setFixedHeight(16);
   m_sizeSlider->setToolTip(tr("Thumbnail Size"));
   m_sizeSlider->setFocusPolicy(Qt::ClickFocus);
-  m_sizeSlider->setStyleSheet(QStringLiteral(
-      "QSlider#browserThumbSizeSlider { padding: 0; margin: 0; }"
-      "QSlider#browserThumbSizeSlider::groove:horizontal {"
-      "  height: 3px; margin: 0; }"
-      "QSlider#browserThumbSizeSlider::handle:horizontal {"
-      "  width: 10px; margin: -5px 0; }"));
+  m_sizeSlider->setStyleSheet(
+      QStringLiteral("QSlider#browserThumbSizeSlider { padding: 0; margin: 0; }"
+                     "QSlider#browserThumbSizeSlider::groove:horizontal {"
+                     "  height: 3px; margin: 0; }"
+                     "QSlider#browserThumbSizeSlider::handle:horizontal {"
+                     "  width: 10px; margin: -5px 0; }"));
   lay->addWidget(m_sizeSlider, 0, Qt::AlignVCenter);
 
   auto *zoomInBtn = new QToolButton(sliderWrap);
@@ -2955,9 +2944,8 @@ void DvItemViewerButtonBar::buildAdvancedControls() {
   addAction(m_bgBlackAct);
   addIconGap();
 
-  m_bgTransparentAct =
-      new QAction(createQIcon("browser_preview_transparency"),
-                  tr("Transparent Background"), this);
+  m_bgTransparentAct = new QAction(createQIcon("browser_preview_transparency"),
+                                   tr("Transparent Background"), this);
   m_bgTransparentAct->setCheckable(true);
   m_bgTransparentAct->setData((int)DvItemViewerPanel::BgTransparent);
   m_bgTransparentAct->setToolTip(tr("Transparent Background"));
@@ -2979,12 +2967,12 @@ void DvItemViewerButtonBar::buildAdvancedControls() {
 
   m_typeSep = addBlockSep();
 
-  static const QStringList kRasterExts = {
-      "PNG", "TIF", "TIFF", "JPG", "JPEG", "TGA", "BMP", "EXR"};
-  static const QStringList kMediaExts = {
-      "MP4", "MOV", "AVI", "WEBM", "GIF", "3GP"};
-  static const QStringList kAudioExts = {
-      "WAV", "AIFF", "AIF", "MP3", "FLAC", "OGG"};
+  static const QStringList kRasterExts = {"PNG",  "TIF", "TIFF", "JPG",
+                                          "JPEG", "TGA", "BMP",  "EXR"};
+  static const QStringList kMediaExts  = {"MP4",  "MOV", "AVI",
+                                          "WEBM", "GIF", "3GP"};
+  static const QStringList kAudioExts  = {"WAV", "AIFF", "AIF",
+                                          "MP3", "FLAC", "OGG"};
 
   struct TypeDef {
     const char *iconName;
@@ -3142,7 +3130,8 @@ void DvItemViewerButtonBar::buildAdvancedControls() {
 
   m_projectFoldersSep = addBlockSep();
   m_projectFolderHost = new QWidget(this);
-  m_projectFolderHost->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+  m_projectFolderHost->setSizePolicy(QSizePolicy::Fixed,
+                                     QSizePolicy::Preferred);
   auto *projectFolderLay = new QHBoxLayout(m_projectFolderHost);
   projectFolderLay->setContentsMargins(0, 0, 0, 0);
   projectFolderLay->setSpacing(kBrowserIconGap);
@@ -3175,8 +3164,8 @@ void DvItemViewerButtonBar::syncAdvancedControlsFromPanel() {
   DvItemViewerPanel *panel = m_itemViewer->getPanel();
   if (!panel) return;
 
-  m_updatingUi = true;
-  const int mode = (int)panel->getThumbnailBgMode();
+  m_updatingUi      = true;
+  const int mode    = (int)panel->getThumbnailBgMode();
   const bool isAuto = (mode == (int)DvItemViewerPanel::BgAuto);
   if (m_bgWhiteAct)
     m_bgWhiteAct->setChecked(!isAuto && mode == DvItemViewerPanel::BgWhite);
@@ -3406,7 +3395,7 @@ void DvItemViewerButtonBar::onBgModeTriggered(QAction *action) {
   DvItemViewerPanel *panel = m_itemViewer->getPanel();
   if (!panel) return;
 
-  m_updatingUi = true;
+  m_updatingUi                            = true;
   DvItemViewerPanel::ThumbnailBgMode mode = DvItemViewerPanel::BgAuto;
   if (action->isChecked()) {
     mode = (DvItemViewerPanel::ThumbnailBgMode)action->data().toInt();
@@ -3522,7 +3511,7 @@ void DvItemViewerButtonBar::onTypeFilterTriggered(bool) {
 void DvItemViewerButtonBar::syncTypeFilterMenuFromIcons() {
   if (m_updatingUi) return;
   m_updatingUi = true;
-  const int n = qMin(m_typeFilterActs.size(), m_typeFilterMenuActs.size());
+  const int n  = qMin(m_typeFilterActs.size(), m_typeFilterMenuActs.size());
   for (int i = 0; i < n; ++i)
     m_typeFilterMenuActs[i]->setChecked(m_typeFilterActs[i]->isChecked());
   m_updatingUi = false;

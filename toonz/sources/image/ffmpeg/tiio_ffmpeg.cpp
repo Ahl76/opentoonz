@@ -608,8 +608,7 @@ void Ffmpeg::getFramesFromMovie(int frame) {
       // Single-frame extract: decoding the whole movie is too slow for
       // browser / filmstrip thumbnails.
       if (frame > 1) {
-        postIFrameArgs << "-vf"
-                       << QString("select=eq(n\\,%1)").arg(frame - 1);
+        postIFrameArgs << "-vf" << QString("select=eq(n\\,%1)").arg(frame - 1);
       }
       postIFrameArgs << "-frames:v" << "1" << "-y" << tempStart;
     }
@@ -625,9 +624,9 @@ void Ffmpeg::getFramesFromMovie(int frame) {
 
     if (frame == -1) {
       for (int i = 1; i <= m_frameCount; i++) {
-        QString frameFile = ffmpegCachePath + QDir::separator() + m_tempBaseName +
-                            QString("_in%1.").arg(i, 6, 10, QChar('0')) +
-                            m_intermediateFormat;
+        QString frameFile =
+            ffmpegCachePath + QDir::separator() + m_tempBaseName +
+            QString("_in%1.").arg(i, 6, 10, QChar('0')) + m_intermediateFormat;
         if (!m_cleanUpList.contains(frameFile)) {
           m_cleanUpList.push_back(frameFile);
         }

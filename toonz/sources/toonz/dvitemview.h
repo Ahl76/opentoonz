@@ -123,9 +123,9 @@ class ItemViewPlayWidget final : public QWidget {
     std::vector<TFrameId> m_fids;
     int m_currentFidIndex;
     QPixmap m_pixmap;
-    QSize m_iconSize;    //!< Layout / paint cell size
-    QSize m_renderSize;  //!< Native HD IconGenerator size (debounced)
-    int m_browserBgMode; //!< DvItemViewerPanel::ThumbnailBgMode
+    QSize m_iconSize;     //!< Layout / paint cell size
+    QSize m_renderSize;   //!< Native HD IconGenerator size (debounced)
+    int m_browserBgMode;  //!< DvItemViewerPanel::ThumbnailBgMode
     qreal m_dpr;
 
   public:
@@ -593,9 +593,9 @@ class DvItemViewerButtonBar final : public QToolBar {
   QList<QAction *> m_typeFilterActs;
   QList<QAction *> m_typeFilterMenuActs;
   QList<QAction *> m_typeFilterIconGaps;
-  QAction *m_typeFilterListGap = nullptr;
+  QAction *m_typeFilterListGap  = nullptr;
   QAction *m_favoritesFilterGap = nullptr;
-  QAction *m_fpsGap = nullptr;
+  QAction *m_fpsGap             = nullptr;
   QActionGroup *m_bgGroup;
   QToolButton *m_sizeMenuBtn;
   QToolButton *m_typeFilterListBtn;

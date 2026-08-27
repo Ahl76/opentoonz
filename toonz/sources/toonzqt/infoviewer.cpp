@@ -90,7 +90,7 @@ public:
   QLabel m_historyLabel;
   QTextEdit m_history;
   Separator m_separator1, m_separator2;
-  bool m_embeddedStyle = false;
+  bool m_embeddedStyle   = false;
   int m_valueColumnWidth = 0;
   void setFileInfo(const TFileStatus &status);
   void setImageInfo();
@@ -143,9 +143,8 @@ public:
     m_fullValues[index] = str;
     m_labels[index].second->setToolTip(str);
     if (m_embeddedStyle && m_valueColumnWidth > 0) {
-      m_labels[index].second->setText(
-          manualWrap(str, m_labels[index].second->fontMetrics(),
-                     m_valueColumnWidth));
+      m_labels[index].second->setText(manualWrap(
+          str, m_labels[index].second->fontMetrics(), m_valueColumnWidth));
     } else {
       m_labels[index].second->setText(str);
     }
@@ -159,7 +158,9 @@ public slots:
 //----------------------------------------------------------------
 
 InfoViewer::InfoViewer(QWidget *parent)
-    : Dialog(parent, false, true), m_imp(new InfoViewerImp()), m_embedded(false) {
+    : Dialog(parent, false, true)
+    , m_imp(new InfoViewerImp())
+    , m_embedded(false) {
   setWindowTitle(tr("File Info"));
   setWindowFlags(windowFlags() | Qt::WindowStaysOnTopHint);
 
@@ -184,8 +185,8 @@ InfoViewer::InfoViewer(QWidget *parent)
 
 void InfoViewer::setEmbedded(bool embedded) {
   if (m_embedded == embedded) return;
-  m_embedded = embedded;
-  QWidget *parent = parentWidget();
+  m_embedded            = embedded;
+  QWidget *parent       = parentWidget();
   QLayout *parentLayout = parent ? parent->layout() : nullptr;
   if (embedded) {
     setModal(false);
@@ -196,7 +197,8 @@ void InfoViewer::setEmbedded(bool embedded) {
     if (QLayout *lay = layout())
       lay->setSizeConstraint(QLayout::SetNoConstraint);
     if (m_mainFrame) {
-      m_mainFrame->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+      m_mainFrame->setSizePolicy(QSizePolicy::Expanding,
+                                 QSizePolicy::Preferred);
       m_mainFrame->setMinimumWidth(0);
       m_mainFrame->setMinimumHeight(0);
     }
@@ -420,7 +422,8 @@ void InfoViewerImp::applyEmbeddedStyle(bool embedded) {
     m_history.setStyleSheet("font-size: 12px;");
     m_history.setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     m_historyLabel.setWordWrap(true);
-    m_historyLabel.setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    m_historyLabel.setSizePolicy(QSizePolicy::Expanding,
+                                 QSizePolicy::Preferred);
   } else {
     m_history.setFixedWidth(490);
     m_history.setMinimumHeight(0);
@@ -438,7 +441,8 @@ void InfoViewerImp::applyEmbeddedStyle(bool embedded) {
     pair.second->setWordWrap(false);
     if (embedded) {
       pair.first->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-      pair.second->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+      pair.second->setSizePolicy(QSizePolicy::Preferred,
+                                 QSizePolicy::Preferred);
       pair.second->setAlignment(Qt::AlignLeft | Qt::AlignTop);
     } else {
       pair.first->setMaximumWidth(QWIDGETSIZE_MAX);
@@ -446,7 +450,8 @@ void InfoViewerImp::applyEmbeddedStyle(bool embedded) {
       pair.first->setMinimumHeight(0);
       pair.second->setMinimumHeight(0);
       pair.first->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
-      pair.second->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+      pair.second->setSizePolicy(QSizePolicy::Preferred,
+                                 QSizePolicy::Preferred);
     }
   }
 
@@ -456,7 +461,8 @@ void InfoViewerImp::applyEmbeddedStyle(bool embedded) {
     m_framesSlider.setMinimumHeight(24);
   } else {
     m_framesLabel.setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
-    m_framesSlider.setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+    m_framesSlider.setSizePolicy(QSizePolicy::Preferred,
+                                 QSizePolicy::Preferred);
   }
 }
 
@@ -522,11 +528,11 @@ void InfoViewerImp::setHistoryText(const QString &raw) {
   }
 
   const QString &header = records[0];
-  int dateCol    = header.indexOf("DATE:");
-  int machCol    = header.indexOf("MACHINE:");
-  int userCol    = header.indexOf("USER:");
-  int framesCol  = header.indexOf("FRAMES");
-  bool hasFrames = (framesCol >= 0);
+  int dateCol           = header.indexOf("DATE:");
+  int machCol           = header.indexOf("MACHINE:");
+  int userCol           = header.indexOf("USER:");
+  int framesCol         = header.indexOf("FRAMES");
+  bool hasFrames        = (framesCol >= 0);
 
   QString result;
   for (int r = 1; r < records.size(); ++r) {
@@ -968,7 +974,8 @@ bool InfoViewerImp::setItem(const TLevelP &level, TPalette *palette,
     if (!m_level) {
       assert(m_path != TFilePath());
       TLevelReaderP lr;
-      // Retry with the literal path if TFilePath stripped a frame from the name.
+      // Retry with the literal path if TFilePath stripped a frame from the
+      // name.
       try {
         lr = TLevelReaderP(m_path);
       } catch (...) {
@@ -1043,11 +1050,10 @@ bool InfoViewerImp::setItem(const TLevelP &level, TPalette *palette,
             setVal(eImageSize, QString::number(ii->m_lx) + " X " +
                                    QString::number(ii->m_ly));
             if (ii->m_x0 <= ii->m_x1)
-              setVal(eSaveBox,
-                     "(" + QString::number(ii->m_x0) + ", " +
-                         QString::number(ii->m_y0) + ", " +
-                         QString::number(ii->m_x1) + ", " +
-                         QString::number(ii->m_y1) + ")");
+              setVal(eSaveBox, "(" + QString::number(ii->m_x0) + ", " +
+                                   QString::number(ii->m_y0) + ", " +
+                                   QString::number(ii->m_x1) + ", " +
+                                   QString::number(ii->m_y1) + ")");
             if (ii->m_bitsPerSample > 0)
               setVal(eBitsSample, QString::number(ii->m_bitsPerSample));
             if (ii->m_samplePerPixel > 0)

@@ -1782,7 +1782,7 @@ void showFileInfoPanel(const TFilePath &path) {
 
   FileInfoPanel *hidden = nullptr;
   QPoint lastFloatingPos;
-  bool haveFloating = false;
+  bool haveFloating           = false;
   const QList<TPanel *> panes = room->findChildren<TPanel *>();
   for (TPanel *p : panes) {
     if (p->getPanelType() != "FileInfo") continue;

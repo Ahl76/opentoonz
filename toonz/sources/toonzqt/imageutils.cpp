@@ -608,7 +608,8 @@ bool getLevelRasterSize(const TFilePath &path, TDimension &size) {
   return true;
 }
 
-static TAffine makeRescaleAffine(const TDimension &src, const TDimension &target,
+static TAffine makeRescaleAffine(const TDimension &src,
+                                 const TDimension &target,
                                  bool preserveAspectRatio) {
   if (src.lx <= 0 || src.ly <= 0 || target.lx <= 0 || target.ly <= 0)
     return TAffine();

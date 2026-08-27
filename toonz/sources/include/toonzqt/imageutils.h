@@ -91,8 +91,8 @@ void DVAPI rescale(const TFilePath &source, const TFilePath &dest,
                    const TDimension &targetSize,
                    TRop::ResampleFilterType filter,
                    FrameTaskNotifier *frameNotifier,
-                   const TFrameId &from = TFrameId(),
-                   const TFrameId &to     = TFrameId(),
+                   const TFrameId &from            = TFrameId(),
+                   const TFrameId &to              = TFrameId(),
                    bool removeDotBeforeFrameNumber = false,
                    bool preserveAspectRatio        = true);
 

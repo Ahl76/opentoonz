@@ -308,14 +308,14 @@ private:
 private:
   DvDirTreeView *m_folderTreeView;
   QSplitter *m_mainSplitter;
-  QSplitter *m_itemsSplitter = nullptr;
-  QScrollArea *m_infoScrollArea = nullptr;
-  QWidget *m_infoPanelHost = nullptr;
-  InfoViewer *m_infoViewer = nullptr;
-  QLabel *m_infoThumbnail = nullptr;
+  QSplitter *m_itemsSplitter      = nullptr;
+  QScrollArea *m_infoScrollArea   = nullptr;
+  QWidget *m_infoPanelHost        = nullptr;
+  InfoViewer *m_infoViewer        = nullptr;
+  QLabel *m_infoThumbnail         = nullptr;
   QToolButton *m_thumbCollapseBtn = nullptr;
-  bool m_infoPanelVisible = false;
-  bool m_infoThumbVisible = true;
+  bool m_infoPanelVisible         = false;
+  bool m_infoThumbVisible         = true;
   TFilePath m_infoCurrentPath;
   //! Last info-panel thumbnail render size (IconGenerator cache key).
   QSize m_infoThumbReqSize;

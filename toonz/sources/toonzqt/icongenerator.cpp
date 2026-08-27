@@ -238,7 +238,8 @@ void makeChessBackground(const TRaster32P &ras) {
 }
 
 //-----------------------------------------------------------------------------
-/*! Ortho/viewport for \p iconSize. TLS OfflineGL may be larger than the request. */
+/*! Ortho/viewport for \p iconSize. TLS OfflineGL may be larger than the
+ * request. */
 void prepareIconGL(TOfflineGL *glContext, const TDimension &iconSize) {
   if (!glContext || iconSize.lx <= 0 || iconSize.ly <= 0) return;
   glContext->makeCurrent();
@@ -281,9 +282,7 @@ TRaster32P convertToIcon(TVectorImageP vimage, int frame,
 
   // HD vector thumbs: draw at 2x then downsample so strokes stay smooth.
   int ss = (iconSize.lx > 80 || iconSize.ly > 60) ? 2 : 1;
-  while (ss > 1 &&
-         (iconSize.lx * ss > 1024 || iconSize.ly * ss > 1024))
-    --ss;
+  while (ss > 1 && (iconSize.lx * ss > 1024 || iconSize.ly * ss > 1024)) --ss;
   const TDimension glSize(iconSize.lx * ss, iconSize.ly * ss);
 
   TOfflineGL *glContext =
@@ -341,8 +340,7 @@ TRaster32P convertToIcon(TVectorImageP vimage, int frame,
     icon->clear();
   else
     icon->fill(rd.m_blackBgEnabled ? TPixel::Black : TPixel32::White);
-  TAffine down =
-      TScale(1.0 / ss).place(ras->getCenterD(), icon->getCenterD());
+  TAffine down = TScale(1.0 / ss).place(ras->getCenterD(), icon->getCenterD());
   TRop::resample(icon, ras, down, TRop::Triangle);
   return icon;
 }
@@ -1033,7 +1031,7 @@ public:
 
   static std::string getId(const TFilePath &path, const TFrameId &fid,
                            const TDimension &iconSize = TDimension(80, 60),
-                           int browserBgMode = 0);
+                           int browserBgMode          = 0);
 
   void run() override;
 };
@@ -1051,8 +1049,7 @@ std::string FileIconRenderer::getId(const TFilePath &path, const TFrameId &fid,
     if (iconSize.lx != 80 || iconSize.ly != 60)
       base += "_r_" + std::to_string(iconSize.lx) + "x" +
               std::to_string(iconSize.ly);
-    if (browserBgMode != 0)
-      base += "_bg" + std::to_string(browserBgMode);
+    if (browserBgMode != 0) base += "_bg" + std::to_string(browserBgMode);
     return base;
   };
 
@@ -1221,9 +1218,9 @@ Qt::transparent)
     icon->fill(TPixel32::White);
 
   // ClosestPixel for small thumbs; Triangle when downscaling to larger ones.
-  const TRop::ResampleFilterType filter =
-      (iconSize.lx > 80 || iconSize.ly > 60) ? TRop::Triangle
-                                             : TRop::ClosestPixel;
+  const TRop::ResampleFilterType filter = (iconSize.lx > 80 || iconSize.ly > 60)
+                                              ? TRop::Triangle
+                                              : TRop::ClosestPixel;
   TRop::resample(icon, ras32, aff, filter);
 
   if (icon) {
@@ -1324,8 +1321,8 @@ void FileIconRenderer::run() {
       iconRaster = IconGenerator::generateSceneFileIcon(m_path, iconSize,
                                                         m_fid.getNumber() - 1);
     else if (type == "pli")
-      iconRaster = IconGenerator::generateVectorFileIcon(m_path, iconSize, m_fid,
-                                                       settings);
+      iconRaster = IconGenerator::generateVectorFileIcon(m_path, iconSize,
+                                                         m_fid, settings);
     else if (type == "tpl") {
       setSvgDecoration(QStringLiteral(":Resources/paletteicon.svg"));
       return;
@@ -1348,11 +1345,11 @@ void FileIconRenderer::run() {
       setSvgDecoration(getIconPath("psd_icon"));
       return;
     } else if (type == "mesh")
-      iconRaster =
-          IconGenerator::generateMeshFileIcon(m_path, iconSize, m_fid, settings);
-    else if (TFileType::isViewable(TFileType::getInfo(m_path)) || type == "tlv")
-      iconRaster = IconGenerator::generateRasterFileIcon(m_path, iconSize, m_fid,
+      iconRaster = IconGenerator::generateMeshFileIcon(m_path, iconSize, m_fid,
                                                        settings);
+    else if (TFileType::isViewable(TFileType::getInfo(m_path)) || type == "tlv")
+      iconRaster = IconGenerator::generateRasterFileIcon(m_path, iconSize,
+                                                         m_fid, settings);
     else if (type == "mpath") {
       setSvgDecoration(getIconPath("motionpath_icon"));
       return;
@@ -1828,8 +1825,7 @@ QPixmap IconGenerator::getIcon(const TFilePath &path, const TFrameId &fid) {
 //-----------------------------------------------------------------------------
 
 QPixmap IconGenerator::getSizedIcon(const TFilePath &path,
-                                    const TDimension &dim,
-                                    const TFrameId &fid,
+                                    const TDimension &dim, const TFrameId &fid,
                                     int browserBgMode) {
   TDimension fileIconSize =
       (dim.lx > 0 && dim.ly > 0) ? dim : TDimension(80, 60);
@@ -1851,8 +1847,7 @@ QPixmap IconGenerator::getSizedIcon(const TFilePath &path,
 //-----------------------------------------------------------------------------
 
 QPixmap IconGenerator::peekSizedIcon(const TFilePath &path,
-                                     const TDimension &dim,
-                                     const TFrameId &fid,
+                                     const TDimension &dim, const TFrameId &fid,
                                      int browserBgMode) {
   TDimension fileIconSize =
       (dim.lx > 0 && dim.ly > 0) ? dim : TDimension(80, 60);
@@ -1883,7 +1878,7 @@ void IconGenerator::remove(const TFilePath &path, const TFrameId &fid) {
 //-----------------------------------------------------------------------------
 
 void IconGenerator::purgeResponsiveFileIconsExcept(const TDimension &keepA,
-                                                  const TDimension &keepB) {
+                                                   const TDimension &keepB) {
   auto suffixOf = [](const TDimension &d) -> std::string {
     if (d.lx <= 0 || d.ly <= 0) return std::string();
     return "_r_" + std::to_string(d.lx) + "x" + std::to_string(d.ly);
@@ -1894,8 +1889,8 @@ void IconGenerator::purgeResponsiveFileIconsExcept(const TDimension &keepA,
   std::vector<std::string> toRemove;
   for (const std::string &id : iconsMap) {
     if (id.size() < 4 || id.compare(0, 2, "$:") != 0) continue;
-    const size_t rPos  = id.rfind("_r_");
-    const bool hasBg   = id.find("_bg") != std::string::npos;
+    const size_t rPos = id.rfind("_r_");
+    const bool hasBg  = id.find("_bg") != std::string::npos;
     if (rPos == std::string::npos && !hasBg) continue;
 
     if (keep1.empty() && keep2.empty()) {
@@ -1904,7 +1899,7 @@ void IconGenerator::purgeResponsiveFileIconsExcept(const TDimension &keepA,
     }
 
     if (rPos == std::string::npos) continue;
-    std::string suf = id.substr(rPos);
+    std::string suf      = id.substr(rPos);
     const size_t bgInSuf = suf.find("_bg");
     if (bgInSuf != std::string::npos) suf = suf.substr(0, bgInSuf);
     if (!keep1.empty() && suf == keep1) continue;

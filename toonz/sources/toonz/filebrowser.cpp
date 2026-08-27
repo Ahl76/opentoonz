@@ -107,12 +107,13 @@ namespace {
 //! Theme SVG at \p size (cached).
 QPixmap browserThemeSvgIcon(const QString &iconName, const QSize &size) {
   static QHash<QString, QPixmap> cache;
-  const QString key = iconName + QLatin1Char('@') + QString::number(size.width()) +
-                      QLatin1Char('x') + QString::number(size.height());
+  const QString key = iconName + QLatin1Char('@') +
+                      QString::number(size.width()) + QLatin1Char('x') +
+                      QString::number(size.height());
   const auto it = cache.constFind(key);
   if (it != cache.cend()) return it.value();
-  QPixmap pm =
-      svgToPixmap(getIconPath(iconName), size, Qt::KeepAspectRatio, Qt::transparent);
+  QPixmap pm = svgToPixmap(getIconPath(iconName), size, Qt::KeepAspectRatio,
+                           Qt::transparent);
   cache.insert(key, pm);
   return pm;
 }
@@ -151,13 +152,12 @@ void BrowserFileSettings::load() {
   settings.beginGroup(QStringLiteral("ThumbnailBg"));
   const QStringList paths = settings.childKeys();
   for (const QString &key : paths) {
-    bool ok    = false;
+    bool ok     = false;
     const int v = settings.value(key).toInt(&ok);
     if (ok) m_bgOverrides.insert(key, v);
   }
   settings.endGroup();
-  for (const QVariant &v :
-       settings.value(QStringLiteral("Favorites")).toList())
+  for (const QVariant &v : settings.value(QStringLiteral("Favorites")).toList())
     m_favorites.insert(v.toString());
   for (const QVariant &v :
        settings.value(QStringLiteral("PinnedFolders")).toList()) {
@@ -341,8 +341,7 @@ TEnv::IntVar BrowserInfoPanelWidth("BrowserInfoPanelWidth", 220);
 
 QPixmap peekAnyBgIcon(const TFilePath &fp, const TDimension &dim,
                       const TFrameId &fid, int preferBg) {
-  QPixmap px =
-      IconGenerator::instance()->peekSizedIcon(fp, dim, fid, preferBg);
+  QPixmap px = IconGenerator::instance()->peekSizedIcon(fp, dim, fid, preferBg);
   if (!px.isNull()) return px;
   for (int m = 0; m <= (int)DvItemViewerPanel::BgAuto; ++m) {
     if (m == preferBg) continue;
@@ -374,7 +373,7 @@ FileBrowser::FileBrowser(QWidget *parent, Qt::WindowFlags flags,
   DvItemViewerTitleBar *titleBar = new DvItemViewerTitleBar(m_itemViewer, box);
   DvItemViewerButtonBar *buttonBar =
       new DvItemViewerButtonBar(m_itemViewer, box);
-  m_buttonBar = buttonBar;
+  m_buttonBar                    = buttonBar;
   DvItemViewerPanel *viewerPanel = m_itemViewer->getPanel();
 
   viewerPanel->addColumn(DvItemListModel::FileType, 50);
@@ -408,7 +407,8 @@ FileBrowser::FileBrowser(QWidget *parent, Qt::WindowFlags flags,
   m_infoScrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
   m_infoScrollArea->setAlignment(Qt::AlignLeft | Qt::AlignTop);
   m_infoScrollArea->setMinimumWidth(140);
-  m_infoScrollArea->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+  m_infoScrollArea->setSizePolicy(QSizePolicy::Preferred,
+                                  QSizePolicy::Expanding);
 
   m_infoPanelHost = new QWidget();
   m_infoPanelHost->setMinimumWidth(0);
@@ -447,7 +447,8 @@ FileBrowser::FileBrowser(QWidget *parent, Qt::WindowFlags flags,
   infoPanelLayout->addWidget(m_infoViewer, 0, Qt::AlignTop);
   m_infoViewer->setEmbedded(true);
   connect(m_infoViewer, &InfoViewer::currentFrameChanged, this, [this]() {
-    if (m_infoCurrentPath != TFilePath()) updateInfoThumbnail(m_infoCurrentPath);
+    if (m_infoCurrentPath != TFilePath())
+      updateInfoThumbnail(m_infoCurrentPath);
   });
 
   connect(IconGenerator::instance(), &IconGenerator::iconGenerated, this,
@@ -1248,9 +1249,8 @@ QVariant FileBrowser::getItemData(int index, DataType dataType,
     // Request committed renderSize; peek previous size while it generates.
     QPixmap pixmap;
     const int bgMode = [&]() {
-      int mode = panel->isAdvancedDisplay()
-                     ? (int)panel->getThumbnailBgMode()
-                     : 0;
+      int mode =
+          panel->isAdvancedDisplay() ? (int)panel->getThumbnailBgMode() : 0;
       if (panel->isAdvancedDisplay() &&
           supportsBrowserThumbnailCustomization(item.m_path)) {
         const int ov =
@@ -1262,19 +1262,19 @@ QVariant FileBrowser::getItemData(int index, DataType dataType,
     if (panel->isAdvancedDisplay() && renderSize.width() > 0 &&
         renderSize.height() > 0) {
       const qreal dpr = qMax(1.0, panel->devicePixelRatioF());
-      const TDimension phys = TDimension(
-          qMax(1, qRound(renderSize.width() * dpr)),
-          qMax(1, qRound(renderSize.height() * dpr)));
+      const TDimension phys =
+          TDimension(qMax(1, qRound(renderSize.width() * dpr)),
+                     qMax(1, qRound(renderSize.height() * dpr)));
       pixmap = IconGenerator::instance()->getSizedIcon(
           item.m_path, phys, TFrameId::NO_FRAME, bgMode);
       if (pixmap.isNull()) {
         const QSize prev = panel->getPrevRenderIconSize();
         if (prev.width() > 0 && prev.height() > 0 && prev != renderSize) {
-          pixmap = peekAnyBgIcon(
-              item.m_path,
-              TDimension(qMax(1, qRound(prev.width() * dpr)),
-                         qMax(1, qRound(prev.height() * dpr))),
-              TFrameId::NO_FRAME, bgMode);
+          pixmap =
+              peekAnyBgIcon(item.m_path,
+                            TDimension(qMax(1, qRound(prev.width() * dpr)),
+                                       qMax(1, qRound(prev.height() * dpr))),
+                            TFrameId::NO_FRAME, bgMode);
         }
       }
       if (pixmap.isNull()) {
@@ -1362,7 +1362,8 @@ int FileBrowser::findIndexWithPath(TFilePath path) {
   for (int i = 0; i < (int)m_items.size(); ++i)
     if (m_items[i].m_path == path) return i;
 #ifdef _WIN32
-  // Windows paths are case-insensitive; FullPath casing may differ after refresh.
+  // Windows paths are case-insensitive; FullPath casing may differ after
+  // refresh.
   const QString target =
       QString::fromStdWString(path.getWideString()).toLower();
   for (int i = 0; i < (int)m_items.size(); ++i) {
@@ -1551,7 +1552,8 @@ void FileBrowser::toggleSelectedFavorite() {
     if (!supportsBrowserFavorites(fp)) continue;
     BrowserFileSettings::instance()->toggleFavorite(fp);
   }
-  if (m_favoritesOnly) applyNameFilter();
+  if (m_favoritesOnly)
+    applyNameFilter();
   else
     updateItemViewerPanel();
 }
@@ -2012,9 +2014,8 @@ QMenu *FileBrowser::getContextMenu(QWidget *parent, int index) {
     if (panel && panel->isAdvancedDisplay() && (hasThumbItem || hasFavItem)) {
       menu->addSeparator();
       if (hasThumbItem) {
-        appendThumbnailBackgroundMenu(menu.get(), [this](int mode) {
-          setSelectedThumbnailBg(mode);
-        });
+        appendThumbnailBackgroundMenu(
+            menu.get(), [this](int mode) { setSelectedThumbnailBg(mode); });
       }
 
       if (hasFavItem) {
@@ -2729,7 +2730,7 @@ void FileBrowser::setInfoPanelVisible(bool visible) {
   if (!m_infoScrollArea || !m_itemsSplitter) return;
   if (m_infoPanelVisible == visible) return;
 
-  m_infoPanelVisible = visible;
+  m_infoPanelVisible      = visible;
   BrowserInfoPanelVisible = visible ? 1 : 0;
   m_infoScrollArea->setVisible(visible);
 
@@ -2774,8 +2775,8 @@ void FileBrowser::onItemsSplitterMoved(int, int) {
     } else {
       // Re-fit from cache while dragging the splitter.
       QPixmap src = IconGenerator::instance()->peekSizedIcon(
-          m_infoCurrentPath, TDimension(m_infoThumbReqSize.width(),
-                                        m_infoThumbReqSize.height()));
+          m_infoCurrentPath,
+          TDimension(m_infoThumbReqSize.width(), m_infoThumbReqSize.height()));
       if (!src.isNull()) setInfoThumbnailPixmap(src);
     }
   }
@@ -2809,8 +2810,7 @@ int FileBrowser::infoThumbPanelWidth() const {
 //-----------------------------------------------------------------------------
 
 int FileBrowser::infoThumbBgMode() const {
-  DvItemViewerPanel *panel =
-      m_itemViewer ? m_itemViewer->getPanel() : nullptr;
+  DvItemViewerPanel *panel = m_itemViewer ? m_itemViewer->getPanel() : nullptr;
   if (!panel || !panel->isAdvancedDisplay()) return 0;
   int mode = (int)panel->getThumbnailBgMode();
   if (m_infoCurrentPath != TFilePath() &&
@@ -2841,9 +2841,9 @@ void FileBrowser::updateInfoThumbnail(const TFilePath &fp) {
   const double dpr = m_infoThumbnail->devicePixelRatioF();
 
   // Snap to coarse buckets: the cache key includes the render size.
-  const int wanted = (int)(infoThumbPanelWidth() * dpr);
-  const int bucket = 64;
-  const int req    = qMax(128, ((wanted + bucket - 1) / bucket) * bucket);
+  const int wanted   = (int)(infoThumbPanelWidth() * dpr);
+  const int bucket   = 64;
+  const int req      = qMax(128, ((wanted + bucket - 1) / bucket) * bucket);
   m_infoThumbReqSize = QSize(req, req);
 
   const TFrameId fid =
@@ -2886,8 +2886,8 @@ void FileBrowser::onIconGenerated() {
       m_infoViewer ? m_infoViewer->currentFrameId() : TFrameId::NO_FRAME;
   const TDimension dim(m_infoThumbReqSize.width(), m_infoThumbReqSize.height());
   const int bgMode = infoThumbBgMode();
-  QPixmap px =
-      IconGenerator::instance()->peekSizedIcon(m_infoCurrentPath, dim, fid, bgMode);
+  QPixmap px = IconGenerator::instance()->peekSizedIcon(m_infoCurrentPath, dim,
+                                                        fid, bgMode);
   if (px.isNull()) return;
   if (px.isNull()) return;
 

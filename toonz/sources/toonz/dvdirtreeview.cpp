@@ -592,9 +592,8 @@ void DvDirTreeView::contextMenuEvent(QContextMenuEvent *e) {
     const TFilePath path = folderNode->getPath();
     if (!path.isEmpty() && TFileStatus(path).isDirectory()) {
       if (!menu.isEmpty()) menu.addSeparator();
-      const bool pinned =
-          BrowserFileSettings::instance()->isPinnedFolder(path);
-      QAction *pinAct = menu.addAction(
+      const bool pinned = BrowserFileSettings::instance()->isPinnedFolder(path);
+      QAction *pinAct   = menu.addAction(
           createQIcon("star"),
           pinned ? tr("Unpin from Favorites") : tr("Pin to Favorites"));
       connect(pinAct, &QAction::triggered, this, [this, path, pinned]() {
@@ -603,8 +602,8 @@ void DvDirTreeView::contextMenuEvent(QContextMenuEvent *e) {
             DvDirModel::instance()->getNode(QModelIndex()));
         if (!root) return;
         root->refreshPinnedFolders();
-        QModelIndex fav = DvDirModel::instance()->getIndexByNode(
-            root->getFavoritesNode());
+        QModelIndex fav =
+            DvDirModel::instance()->getIndexByNode(root->getFavoritesNode());
         if (!fav.isValid()) return;
         if (!pinned)
           expand(fav);

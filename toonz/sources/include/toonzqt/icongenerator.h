@@ -127,11 +127,11 @@ public:
   //! File/scene icon at \p dim. \p browserBgMode: ThumbnailBgMode (0 = auto).
   QPixmap getSizedIcon(const TFilePath &path, const TDimension &dim,
                        const TFrameId &fid = TFrameId::NO_FRAME,
-                       int browserBgMode = 0);
+                       int browserBgMode   = 0);
   //! Cache lookup only; does not queue a render.
   QPixmap peekSizedIcon(const TFilePath &path, const TDimension &dim,
                         const TFrameId &fid = TFrameId::NO_FRAME,
-                        int browserBgMode = 0);
+                        int browserBgMode   = 0);
   void invalidate(const TFilePath &path,
                   const TFrameId &fid = TFrameId::NO_FRAME);
   void remove(const TFilePath &path, const TFrameId &fid = TFrameId::NO_FRAME);
@@ -147,14 +147,12 @@ public:
   void purgeResponsiveFileIconsExcept(const TDimension &keepA,
                                       const TDimension &keepB = TDimension());
 
-  static TRaster32P generateVectorFileIcon(const TFilePath &path,
-                                           const TDimension &iconSize,
-                                           const TFrameId &fid,
-                                           const Settings &settings = Settings());
-  static TRaster32P generateRasterFileIcon(const TFilePath &path,
-                                           const TDimension &iconSize,
-                                           const TFrameId &fid,
-                                           const Settings &settings = Settings());
+  static TRaster32P generateVectorFileIcon(
+      const TFilePath &path, const TDimension &iconSize, const TFrameId &fid,
+      const Settings &settings = Settings());
+  static TRaster32P generateRasterFileIcon(
+      const TFilePath &path, const TDimension &iconSize, const TFrameId &fid,
+      const Settings &settings = Settings());
   static TRaster32P generateSceneFileIcon(const TFilePath &path,
                                           const TDimension &iconSize, int row);
   static TRaster32P generateSplineFileIcon(const TFilePath &path,

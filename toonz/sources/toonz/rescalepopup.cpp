@@ -50,7 +50,7 @@ const int kSectionIndent = 16;
 TEnv::IntVar RescalePopupSkipExisting("RescalePopupSkipExisting", 1);
 TEnv::IntVar RescalePopupRemoveDot("RescalePopupRemoveDot", 1);
 TEnv::IntVar RescalePopupPreserveAspectRatio("RescalePopupPreserveAspectRatio",
-                                            1);
+                                             1);
 
 const QString kCustomPreset = QObject::tr("<custom>");
 
@@ -67,7 +67,7 @@ TRop::ResampleFilterType filterFromIndex(int index) {
 
 bool parsePresetResolution(const QString &line, int &xres, int &yres) {
   static const QRegularExpression rx(R"(([0-9]+)\s*x\s*([0-9]+))",
-                                   QRegularExpression::CaseInsensitiveOption);
+                                     QRegularExpression::CaseInsensitiveOption);
   QRegularExpressionMatch match = rx.match(line);
   if (!match.hasMatch()) return false;
   xres = match.captured(1).toInt();
@@ -106,23 +106,20 @@ public:
   explicit Worker(RescalePopup *popup) : m_popup(popup) {}
 
   void run() override {
-    RescalePopup *popup = m_popup;
+    RescalePopup *popup     = m_popup;
     const TDimension target = popup->targetSize();
     const TRop::ResampleFilterType filter =
         filterFromIndex(popup->m_filterCombo->currentIndex());
-    const bool removeDot =
-        popup->m_removeDotBeforeFrameNumber->isChecked();
-    const bool preserveAspectRatio =
-        popup->m_preserveAspectRatio->isChecked();
-    int skipped = 0;
+    const bool removeDot = popup->m_removeDotBeforeFrameNumber->isChecked();
+    const bool preserveAspectRatio = popup->m_preserveAspectRatio->isChecked();
+    int skipped                    = 0;
 
-    for (int i = 0; !popup->m_notifier->abortTask() &&
-                    i < (int)popup->m_srcFiles.size();
+    for (int i = 0;
+         !popup->m_notifier->abortTask() && i < (int)popup->m_srcFiles.size();
          ++i) {
-      const TFilePath source = popup->m_srcFiles[i];
-      const TFilePath dest   = popup->destinationPath(source);
-      const QString levelName =
-          QString::fromStdWString(source.getLevelNameW());
+      const TFilePath source  = popup->m_srcFiles[i];
+      const TFilePath dest    = popup->destinationPath(source);
+      const QString levelName = QString::fromStdWString(source.getLevelNameW());
 
       if (TSystem::doesExistFileOrLevel(dest)) {
         if (popup->m_skipExisting->isChecked()) {
@@ -147,13 +144,13 @@ public:
 
       TFrameId from, to;
       popup->getFrameRange(source, from, to);
-      ImageUtils::rescale(source, dest, target, filter, popup->m_notifier,
-                          from, to, removeDot, preserveAspectRatio);
+      ImageUtils::rescale(source, dest, target, filter, popup->m_notifier, from,
+                          to, removeDot, preserveAspectRatio);
     }
 
     if (skipped > 0) {
-      DVGui::info(RescalePopup::tr("%1 file(s) skipped (already exist).")
-                      .arg(skipped));
+      DVGui::info(
+          RescalePopup::tr("%1 file(s) skipped (already exist).").arg(skipped));
     }
   }
 };
@@ -192,8 +189,7 @@ RescalePopup::RescalePopup()
   setWindowTitle(tr("Rescale"));
   setMinimumWidth(420);
 
-  m_presetListFile =
-      ToonzFolder::getReslistPath(false).getQString();
+  m_presetListFile = ToonzFolder::getReslistPath(false).getQString();
 
   m_topLayout->setContentsMargins(8, 8, 8, 8);
   m_topLayout->setSpacing(0);
@@ -282,8 +278,8 @@ RescalePopup::RescalePopup()
   m_currentWidthFld->setEnabled(false);
   m_currentHeightFld->setEnabled(false);
   grid->addWidget(fieldLabel(tr("Size:")), row, 1);
-  grid->addWidget(sizeRowWidget(m_currentWidthFld, m_currentHeightFld), row++, 2,
-                  Qt::AlignLeft);
+  grid->addWidget(sizeRowWidget(m_currentWidthFld, m_currentHeightFld), row++,
+                  2, Qt::AlignLeft);
 
   // --- Target Size ---
   sectionTitle(row, tr("Target Size"));
@@ -303,9 +299,8 @@ RescalePopup::RescalePopup()
       new DVGui::CheckBox(tr("Preserve aspect ratio"), this);
   m_preserveAspectRatio->setChecked(RescalePopupPreserveAspectRatio != 0);
   grid->addWidget(fieldLabel(tr("Size:")), row, 1);
-  grid->addWidget(
-      sizeRowWidget(m_widthFld, m_heightFld, m_preserveAspectRatio), row++, 2,
-      Qt::AlignLeft);
+  grid->addWidget(sizeRowWidget(m_widthFld, m_heightFld, m_preserveAspectRatio),
+                  row++, 2, Qt::AlignLeft);
 
   m_filterCombo = new QComboBox(this);
   m_filterCombo->addItem(tr("Triangle"));
@@ -363,7 +358,7 @@ RescalePopup::RescalePopup()
   m_cancelBtn = new QPushButton(tr("Cancel"), this);
   m_okBtn->setDefault(true);
 
-  m_notifier = new ImageUtils::FrameTaskNotifier();
+  m_notifier       = new ImageUtils::FrameTaskNotifier();
   m_progressDialog = new DVGui::ProgressDialog("", tr("Cancel"), 0, 0);
   m_progressDialog->setWindowTitle(tr("Rescale"));
   m_progressDialog->setWindowFlags(Qt::Dialog | Qt::WindowTitleHint);
@@ -377,7 +372,8 @@ RescalePopup::RescalePopup()
           SLOT(onPreserveAspectRatioChanged()));
   connect(m_fromFld, SIGNAL(editingFinished()), this, SLOT(onRangeChanged()));
   connect(m_toFld, SIGNAL(editingFinished()), this, SLOT(onRangeChanged()));
-  connect(m_addPresetBtn, &QPushButton::clicked, this, &RescalePopup::addPreset);
+  connect(m_addPresetBtn, &QPushButton::clicked, this,
+          &RescalePopup::addPreset);
   connect(m_removePresetBtn, &QPushButton::clicked, this,
           &RescalePopup::removePreset);
   connect(m_okBtn, &QPushButton::clicked, this, &RescalePopup::apply);
@@ -459,8 +455,7 @@ void RescalePopup::syncLinkedSizeFromWidth() {
   const int w = m_widthFld->getValue();
   if (w <= 0) return;
   m_updatingSize = true;
-  const int h =
-      (int)(w * (double)m_currentSize.ly / m_currentSize.lx + 0.5);
+  const int h    = (int)(w * (double)m_currentSize.ly / m_currentSize.lx + 0.5);
   m_heightFld->setValue(tcrop(h, 1, 16384));
   m_updatingSize = false;
 }
@@ -474,8 +469,7 @@ void RescalePopup::syncLinkedSizeFromHeight() {
   const int h = m_heightFld->getValue();
   if (h <= 0) return;
   m_updatingSize = true;
-  const int w =
-      (int)(h * (double)m_currentSize.lx / m_currentSize.ly + 0.5);
+  const int w    = (int)(h * (double)m_currentSize.lx / m_currentSize.ly + 0.5);
   m_widthFld->setValue(tcrop(w, 1, 16384));
   m_updatingSize = false;
 }
@@ -510,11 +504,10 @@ void RescalePopup::addPreset() {
     return;
   }
 
-  const QString presetBody =
-      QString::number(w) + "x" + QString::number(h) + ", " +
-      aspectRatioString((double)w / h);
+  const QString presetBody = QString::number(w) + "x" + QString::number(h) +
+                             ", " + aspectRatioString((double)w / h);
 
-  bool ok = false;
+  bool ok      = false;
   QString name = DVGui::getText(
       tr("Preset name"), tr("Enter the name for %1").arg(presetBody), "", &ok);
   if (!ok || name.trimmed().isEmpty()) return;
@@ -536,10 +529,9 @@ void RescalePopup::addPreset() {
 void RescalePopup::removePreset() {
   const int index = m_presetCombo->currentIndex();
   if (index <= 0) return;
-  const int ret =
-      DVGui::MsgBox(tr("Deleting \"%1\".\nAre you sure?")
-                        .arg(m_presetCombo->currentText()),
-                    tr("Delete"), tr("Cancel"));
+  const int ret = DVGui::MsgBox(
+      tr("Deleting \"%1\".\nAre you sure?").arg(m_presetCombo->currentText()),
+      tr("Delete"), tr("Cancel"));
   if (ret == 0 || ret == 2) return;
   m_presetCombo->removeItem(index);
   m_presetCombo->setCurrentIndex(0);
@@ -549,7 +541,7 @@ void RescalePopup::removePreset() {
 //-----------------------------------------------------------------------------
 
 void RescalePopup::setFiles(const std::vector<TFilePath> &files) {
-  m_srcFiles = files;
+  m_srcFiles    = files;
   m_currentSize = TDimension();
 
   if (files.empty()) return;
@@ -570,8 +562,8 @@ void RescalePopup::setFiles(const std::vector<TFilePath> &files) {
 
   if (single) {
     m_fileNameFld->setText(QString::fromStdString(files[0].getName()));
-    setWindowTitle(tr("Rescale : %1")
-                       .arg(QString::fromStdString(files[0].getName())));
+    setWindowTitle(
+        tr("Rescale : %1").arg(QString::fromStdString(files[0].getName())));
 
     TLevelReaderP lr(files[0]);
     if (lr) {
@@ -592,12 +584,10 @@ void RescalePopup::setFiles(const std::vector<TFilePath> &files) {
     }
 
     const std::string ext = files[0].getType();
-    const bool isSeq =
-        TFileType::isLevelFilePath(files[0]) &&
-        !TFileType::isLevelExtension(ext);
+    const bool isSeq      = TFileType::isLevelFilePath(files[0]) &&
+                       !TFileType::isLevelExtension(ext);
     m_removeDotBeforeFrameNumber->setEnabled(isSeq);
-    if (isSeq && ext == "tga")
-      m_removeDotBeforeFrameNumber->setChecked(true);
+    if (isSeq && ext == "tga") m_removeDotBeforeFrameNumber->setChecked(true);
   } else {
     setWindowTitle(tr("Rescale %1 Files").arg(files.size()));
     m_fileNameFld->setText("");
@@ -692,11 +682,11 @@ void RescalePopup::getFrameRange(const TFilePath &source, TFrameId &from,
   if (!t || t->empty()) return;
 
   TFrameId firstFrame = from = t->begin()->first;
-  TFrameId lastFrame  = to   = t->rbegin()->first;
+  TFrameId lastFrame = to = t->rbegin()->first;
 
   if (m_srcFiles.size() == 1 && m_fromFld->isEnabled() &&
       m_toFld->isEnabled()) {
-    bool ok = false;
+    bool ok      = false;
     TFrameId fid = TFrameId(m_fromFld->text().toInt(&ok));
     if (ok && fid > from) from = tcrop(fid, firstFrame, lastFrame);
     fid = TFrameId(m_toFld->text().toInt(&ok));
@@ -737,10 +727,8 @@ void RescalePopup::apply() {
   if (!checkParameters() || m_isRunning) return;
 
   RescalePopupSkipExisting = m_skipExisting->isChecked() ? 1 : 0;
-  RescalePopupRemoveDot =
-      m_removeDotBeforeFrameNumber->isChecked() ? 1 : 0;
-  RescalePopupPreserveAspectRatio =
-      m_preserveAspectRatio->isChecked() ? 1 : 0;
+  RescalePopupRemoveDot    = m_removeDotBeforeFrameNumber->isChecked() ? 1 : 0;
+  RescalePopupPreserveAspectRatio = m_preserveAspectRatio->isChecked() ? 1 : 0;
 
   m_isRunning = true;
   m_okBtn->setEnabled(false);

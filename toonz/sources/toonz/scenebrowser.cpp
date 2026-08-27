@@ -840,9 +840,8 @@ QVariant SceneBrowser::getItemData(int index, DataType dataType,
 
     QPixmap pixmap;
     const int bgMode = [&]() {
-      int mode = panel->isAdvancedDisplay()
-                     ? (int)panel->getThumbnailBgMode()
-                     : 0;
+      int mode =
+          panel->isAdvancedDisplay() ? (int)panel->getThumbnailBgMode() : 0;
       if (panel->isAdvancedDisplay() &&
           supportsBrowserThumbnailCustomization(item.m_path)) {
         const int ov =
@@ -1376,9 +1375,8 @@ QMenu *SceneBrowser::getContextMenu(QWidget *parent, int index) {
     if (panel && panel->isAdvancedDisplay() && (hasThumbItem || hasFavItem)) {
       menu->addSeparator();
       if (hasThumbItem) {
-        appendThumbnailBackgroundMenu(menu, [this](int mode) {
-          setSelectedThumbnailBg(mode);
-        });
+        appendThumbnailBackgroundMenu(
+            menu, [this](int mode) { setSelectedThumbnailBg(mode); });
       }
 
       if (hasFavItem) {

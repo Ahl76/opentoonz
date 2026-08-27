@@ -789,7 +789,7 @@ DvDirModelFavoritesNode::DvDirModelFavoritesNode(DvDirModelNode *parent)
 
 void DvDirModelFavoritesNode::refreshChildren() {
   clearPointerContainer(m_children);
-  m_childrenValid = true;
+  m_childrenValid        = true;
   const QStringList pins = BrowserFileSettings::instance()->pinnedFolders();
   for (const QString &s : pins) {
     const TFilePath fp(s.toStdWString());
