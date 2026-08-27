@@ -1231,22 +1231,26 @@ QVariant FileBrowser::getItemData(int index, DataType dataType,
     }();
     if (panel->isAdvancedDisplay() && renderSize.width() > 0 &&
         renderSize.height() > 0) {
+      const qreal dpr = qMax(1.0, panel->devicePixelRatioF());
+      const TDimension phys = TDimension(
+          qMax(1, qRound(renderSize.width() * dpr)),
+          qMax(1, qRound(renderSize.height() * dpr)));
       pixmap = IconGenerator::instance()->getSizedIcon(
-          item.m_path, TDimension(renderSize.width(), renderSize.height()),
-          TFrameId::NO_FRAME, bgMode);
+          item.m_path, phys, TFrameId::NO_FRAME, bgMode);
       if (pixmap.isNull()) {
         const QSize prev = panel->getPrevRenderIconSize();
         if (prev.width() > 0 && prev.height() > 0 && prev != renderSize) {
-          pixmap = peekAnyBgIcon(item.m_path,
-                                 TDimension(prev.width(), prev.height()),
-                                 TFrameId::NO_FRAME, bgMode);
+          pixmap = peekAnyBgIcon(
+              item.m_path,
+              TDimension(qMax(1, qRound(prev.width() * dpr)),
+                         qMax(1, qRound(prev.height() * dpr))),
+              TFrameId::NO_FRAME, bgMode);
         }
       }
       if (pixmap.isNull()) {
-        pixmap = peekAnyBgIcon(
-            item.m_path, TDimension(renderSize.width(), renderSize.height()),
-            TFrameId::NO_FRAME, bgMode);
+        pixmap = peekAnyBgIcon(item.m_path, phys, TFrameId::NO_FRAME, bgMode);
       }
+      if (!pixmap.isNull() && dpr > 1.0) pixmap.setDevicePixelRatio(dpr);
     }
     if (pixmap.isNull())
       pixmap = IconGenerator::instance()->getIcon(item.m_path);

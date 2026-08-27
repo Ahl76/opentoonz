@@ -126,6 +126,7 @@ class ItemViewPlayWidget final : public QWidget {
     QSize m_iconSize;    //!< Layout / paint cell size
     QSize m_renderSize;  //!< Native HD IconGenerator size (debounced)
     int m_browserBgMode; //!< DvItemViewerPanel::ThumbnailBgMode
+    qreal m_dpr;
 
   public:
     PlayManager();
@@ -133,7 +134,8 @@ class ItemViewPlayWidget final : public QWidget {
 
     void reset();
     void setInfo(DvItemListModel *model, int index, const QSize &layoutSize,
-                 const QSize &renderSize, int browserBgMode = 0);
+                 const QSize &renderSize, int browserBgMode = 0,
+                 qreal dpr = 1.0);
     /*! Increase current frame if icon is computed; return true if frame is
      * increased. */
     bool increaseCurrentFrame();

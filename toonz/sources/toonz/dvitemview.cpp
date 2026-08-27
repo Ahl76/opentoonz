@@ -572,7 +572,8 @@ ItemViewPlayWidget::PlayManager::PlayManager()
     , m_pixmap(QPixmap())
     , m_iconSize(QSize())
     , m_renderSize(QSize())
-    , m_browserBgMode(0) {}
+    , m_browserBgMode(0)
+    , m_dpr(1.0) {}
 
 //-----------------------------------------------------------------------------
 
@@ -585,6 +586,7 @@ void ItemViewPlayWidget::PlayManager::reset() {
   m_currentFidIndex = 0;
   m_pixmap          = QPixmap();
   m_browserBgMode   = 0;
+  m_dpr             = 1.0;
 }
 
 //-----------------------------------------------------------------------------
@@ -596,22 +598,22 @@ QPixmap ItemViewPlayWidget::PlayManager::fetchFramePixmap(const TFrameId &fid,
       m_renderSize.width() > 0 && m_renderSize.height() > 0 &&
       (m_renderSize.width() > 80 || m_renderSize.height() > 60);
   if (wantHd) {
-    const TDimension dim(m_renderSize.width(), m_renderSize.height());
-    // Frame 0 / NO_FRAME: same convention as static thumbnails (scene PNG).
-    if (fid == TFrameId::NO_FRAME || m_currentFidIndex == 0)
-      pixmap = IconGenerator::instance()->getSizedIcon(
-          m_path, dim, TFrameId::NO_FRAME, m_browserBgMode);
-    else
-      pixmap = IconGenerator::instance()->getSizedIcon(m_path, dim, fid,
-                                                       m_browserBgMode);
+    const qreal dpr = qMax(1.0, m_dpr);
+    const TDimension dim(
+        qMax(1, qRound(m_renderSize.width() * dpr)),
+        qMax(1, qRound(m_renderSize.height() * dpr)));
+    const TFrameId reqFid =
+        (fid == TFrameId::NO_FRAME || m_currentFidIndex == 0)
+            ? TFrameId::NO_FRAME
+            : fid;
+    pixmap = IconGenerator::instance()->getSizedIcon(m_path, dim, reqFid,
+                                                     m_browserBgMode);
+    if (!pixmap.isNull() && dpr > 1.0) pixmap.setDevicePixelRatio(dpr);
+    return pixmap;
   }
-  if (pixmap.isNull()) {
-    if (fid == TFrameId::NO_FRAME || m_currentFidIndex == 0)
-      pixmap = IconGenerator::instance()->getIcon(m_path);
-    else
-      pixmap = IconGenerator::instance()->getIcon(m_path, fid);
-  }
-  return pixmap;
+  if (fid == TFrameId::NO_FRAME || m_currentFidIndex == 0)
+    return IconGenerator::instance()->getIcon(m_path);
+  return IconGenerator::instance()->getIcon(m_path, fid);
 }
 
 //-----------------------------------------------------------------------------
@@ -619,11 +621,12 @@ QPixmap ItemViewPlayWidget::PlayManager::fetchFramePixmap(const TFrameId &fid,
 void ItemViewPlayWidget::PlayManager::setInfo(DvItemListModel *model, int index,
                                               const QSize &layoutSize,
                                               const QSize &renderSize,
-                                              int browserBgMode) {
+                                              int browserBgMode, qreal dpr) {
   assert(!!model && index >= 0);
   QString string =
       model->getItemData(index, DvItemListModel::FullPath).toString();
   TFilePath path = TFilePath(string.toStdWString());
+  if (dpr < 1.0) dpr = 1.0;
   if (!m_path.isEmpty() && !m_fids.empty() &&
       path == m_path)  // Ho gia' il path e i frameId settati correttamente
   {
@@ -632,6 +635,7 @@ void ItemViewPlayWidget::PlayManager::setInfo(DvItemListModel *model, int index,
     if (!layoutSize.isEmpty()) m_iconSize = layoutSize;
     if (!renderSize.isEmpty()) m_renderSize = renderSize;
     m_browserBgMode = browserBgMode;
+    m_dpr           = dpr;
     return;
   }
 
@@ -639,7 +643,7 @@ void ItemViewPlayWidget::PlayManager::setInfo(DvItemListModel *model, int index,
   m_iconSize       = layoutSize.isEmpty() ? QSize(80, 60) : layoutSize;
   m_renderSize     = renderSize.isEmpty() ? m_iconSize : renderSize;
   m_browserBgMode  = browserBgMode;
-  // Leave empty until the first play frame is ready.
+  m_dpr            = dpr;
   m_pixmap = QPixmap();
   m_path   = path;
   getFileFids(m_path, m_fids);
@@ -688,8 +692,7 @@ bool ItemViewPlayWidget::PlayManager::isFrameIndexInRange() {
 bool ItemViewPlayWidget::PlayManager::restartFromBeginning() {
   if (m_fids.empty()) return false;
   m_currentFidIndex = 0;
-  m_pixmap          = QPixmap();
-  getCurrentFrame();  // may still be pending HD — keep the timer running
+  getCurrentFrame();
   return true;
 }
 
@@ -790,13 +793,18 @@ void ItemViewPlayWidget::setIsPlaying(DvItemListModel *model, int index) {
     m_currentItemIndex = index;
     QSize layoutSize(80, 60), renderSize(80, 60);
     int bgMode = 0;
+    qreal dpr  = 1.0;
     if (auto *panel = qobject_cast<DvItemViewerPanel *>(parentWidget())) {
       layoutSize = panel->getIconSize();
       renderSize = panel->getRenderIconSize();
       bgMode     = (int)panel->getThumbnailBgMode();
+      dpr        = panel->devicePixelRatioF();
     }
-    m_playManager->setInfo(model, index, layoutSize, renderSize, bgMode);
-    m_playManager->getCurrentFrame();  // prime first HD frame if ready
+    const QVariant itemBg =
+        model->getItemData(index, DvItemListModel::ThumbnailBg);
+    if (itemBg.isValid()) bgMode = itemBg.toInt();
+    m_playManager->setInfo(model, index, layoutSize, renderSize, bgMode, dpr);
+    m_playManager->getCurrentFrame();
   }
   play();
 }
@@ -812,12 +820,17 @@ void ItemViewPlayWidget::setIsPlayingCurrentFrameIndex(DvItemListModel *model,
     m_currentItemIndex = index;
     QSize layoutSize(80, 60), renderSize(80, 60);
     int bgMode = 0;
+    qreal dpr  = 1.0;
     if (auto *panel = qobject_cast<DvItemViewerPanel *>(parentWidget())) {
       layoutSize = panel->getIconSize();
       renderSize = panel->getRenderIconSize();
       bgMode     = (int)panel->getThumbnailBgMode();
+      dpr        = panel->devicePixelRatioF();
     }
-    m_playManager->setInfo(model, index, layoutSize, renderSize, bgMode);
+    const QVariant itemBg =
+        model->getItemData(index, DvItemListModel::ThumbnailBg);
+    if (itemBg.isValid()) bgMode = itemBg.toInt();
+    m_playManager->setInfo(model, index, layoutSize, renderSize, bgMode, dpr);
   }
   if (!m_playManager->setCurrentFrameIndexFromXValue(xValue, length)) return;
   stop();  // Devo fare stop prima di cambiare il frame corrente
@@ -838,13 +851,20 @@ void ItemViewPlayWidget::paint(QPainter *painter, QRect rect) {
   QPixmap pixmap = m_playManager->getCurrentPixmap();
   if (pixmap.isNull()) return;
   const QRect dest = rect.adjusted(2, 2, -1, -1);
-  if (pixmap.size() == dest.size()) {
+  const qreal dpr =
+      pixmap.devicePixelRatio() > 0 ? pixmap.devicePixelRatio() : 1.0;
+  const QSize logicalSize(qRound(pixmap.width() / dpr),
+                          qRound(pixmap.height() / dpr));
+  if (logicalSize == dest.size()) {
     painter->drawPixmap(dest.topLeft(), pixmap);
   } else {
     painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
-    const QPixmap scaled =
-        pixmap.scaled(dest.size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
-    QRect centered(scaled.rect());
+    QPixmap scaled = pixmap.scaled(dest.size() * dpr, Qt::KeepAspectRatio,
+                                   Qt::SmoothTransformation);
+    scaled.setDevicePixelRatio(dpr);
+    QRect centered(QPoint(0, 0),
+                   QSize(qRound(scaled.width() / dpr),
+                         qRound(scaled.height() / dpr)));
     centered.moveCenter(dest.center());
     painter->drawPixmap(centered.topLeft(), scaled);
   }

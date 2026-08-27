@@ -271,11 +271,6 @@ TRaster32P convertToIcon(TVectorImageP vimage, int frame,
   if (!plt) return TRaster32P();
   plt->setFrame(frame);
 
-  // OfflineGL buffer must cover iconSize for getSizedIcon requests.
-  TOfflineGL *glContext =
-      IconGenerator::instance()->getOfflineGLContext(iconSize);
-
-  // Image bounding box with a small margin to prevent issues with empty images
   TRectD imageBox;
   {
     QMutexLocker sl(vimage->getMutex());
@@ -284,30 +279,35 @@ TRaster32P convertToIcon(TVectorImageP vimage, int frame,
 
   TPointD imageCenter = (imageBox.getP00() + imageBox.getP11()) * 0.5;
 
-  // Calculate transformation matrix to fit the image inside the icon
-  const int margin = 10;
-  double scx       = (iconSize.lx - margin) / imageBox.getLx();
-  double scy       = (iconSize.ly - margin) / imageBox.getLy();
+  // HD vector thumbs: draw at 2x then downsample so strokes stay smooth.
+  int ss = (iconSize.lx > 80 || iconSize.ly > 60) ? 2 : 1;
+  while (ss > 1 &&
+         (iconSize.lx * ss > 1024 || iconSize.ly * ss > 1024))
+    --ss;
+  const TDimension glSize(iconSize.lx * ss, iconSize.ly * ss);
+
+  TOfflineGL *glContext =
+      IconGenerator::instance()->getOfflineGLContext(glSize);
+
+  const int margin = 10 * ss;
+  double scx       = (glSize.lx - margin) / imageBox.getLx();
+  double scy       = (glSize.ly - margin) / imageBox.getLy();
   double sc        = std::min(scx, scy);
-  //  The center point of the image is at the point middle of the pixmap.
-  TPointD iconCenter(iconSize.lx * 0.5, iconSize.ly * 0.5);
+  TPointD iconCenter(glSize.lx * 0.5, glSize.ly * 0.5);
   TAffine aff = TScale(sc).place(imageCenter, iconCenter);
 
-  // Initialize VectorRenderData
-  TVectorRenderData rd(aff, TRect(iconSize), plt, 0, true);
-
+  TVectorRenderData rd(aff, TRect(glSize), plt, 0, true);
   rd.m_tcheckEnabled  = settings.m_transparencyCheck;
   rd.m_blackBgEnabled = settings.m_blackBgCheck;
   rd.m_drawRegions    = !settings.m_inksOnly;
   rd.m_isIcon         = true;
+  rd.m_regionAntialias = (ss > 1);
 
-  // Sync Check Flags
   rd.m_inkCheckEnabled   = settings.m_inkCheckEnabled;
   rd.m_ink1CheckEnabled  = settings.m_ink1CheckEnabled;
   rd.m_paintCheckEnabled = settings.m_paintCheckEnabled;
   rd.m_paintIndex        = settings.m_paintIndex;
 
-  // Define the target color index for highlighting (Priority: Ink > Paint)
   if (rd.m_inkCheckEnabled || rd.m_ink1CheckEnabled)
     rd.m_colorCheckIndex = settings.m_inkIndex;
   else if (rd.m_paintCheckEnabled)
@@ -315,29 +315,36 @@ TRaster32P convertToIcon(TVectorImageP vimage, int frame,
   else
     rd.m_colorCheckIndex = -1;
 
-  // Set check colors from Preferences
   Preferences *pref    = Preferences::instance();
   rd.m_inkCheckColor   = pref->getInkCheckColor();
   rd.m_ink1CheckColor  = pref->getInk1CheckColor();
   rd.m_paintCheckColor = pref->getPaintCheckColor();
 
-  // Set iconSize projection after clear: a larger TLS OfflineGL would
-  // otherwise keep a full-buffer projection.
   glContext->makeCurrent();
   if (settings.m_transparentBg)
     glContext->clear(TPixel32::Transparent);
   else
     glContext->clear(rd.m_blackBgEnabled ? TPixel::Black : TPixel32::White);
-  prepareIconGL(glContext, iconSize);
+  prepareIconGL(glContext, glSize);
   glContext->draw(vimage, rd, false);
 
-  // Retrieve the rendered raster
-  TRaster32P ras(iconSize);
+  TRaster32P ras(glSize);
   glContext->getRaster(ras);
   glContext->doneCurrent();
 
   delete plt;
-  return ras;
+
+  if (ss == 1) return ras;
+
+  TRaster32P icon(iconSize);
+  if (settings.m_transparentBg)
+    icon->clear();
+  else
+    icon->fill(rd.m_blackBgEnabled ? TPixel::Black : TPixel32::White);
+  TAffine down =
+      TScale(1.0 / ss).place(ras->getCenterD(), icon->getCenterD());
+  TRop::resample(icon, ras, down, TRop::Triangle);
+  return icon;
 }
 
 //-------------------------------------------------------------------------
