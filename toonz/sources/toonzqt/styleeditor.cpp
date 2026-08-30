@@ -2514,8 +2514,10 @@ int compactNumericFieldWidth(QLineEdit *lineEdit, const TColorStyleP &style,
     case TColorStyle::INT: {
       int minV = 0, maxV = 0;
       style->getParamRange(paramIdx, minV, maxV);
-      width = std::max(width, textWidthForCompactField(fm, QString::number(minV)));
-      width = std::max(width, textWidthForCompactField(fm, QString::number(maxV)));
+      width =
+          std::max(width, textWidthForCompactField(fm, QString::number(minV)));
+      width =
+          std::max(width, textWidthForCompactField(fm, QString::number(maxV)));
       break;
     }
     case TColorStyle::DOUBLE: {
@@ -2532,11 +2534,10 @@ int compactNumericFieldWidth(QLineEdit *lineEdit, const TColorStyleP &style,
 
       width = std::max(width, textWidthForCompactField(fm, format(minV)));
       width = std::max(width, textWidthForCompactField(fm, format(maxV)));
-      width = std::max(
-          width,
-          textWidthForCompactField(
-              fm, format(style->getParamValue(TColorStyle::double_tag(),
-                                              paramIdx))));
+      width =
+          std::max(width, textWidthForCompactField(
+                              fm, format(style->getParamValue(
+                                      TColorStyle::double_tag(), paramIdx))));
       break;
     }
     default:
@@ -2643,7 +2644,8 @@ SettingsPage::SettingsPage(QWidget *parent)
 //-----------------------------------------------------------------------------
 
 void SettingsPage::applyCompactMetrics() {
-  QWidget *container = m_paramsLayout ? m_paramsLayout->parentWidget() : nullptr;
+  QWidget *container =
+      m_paramsLayout ? m_paramsLayout->parentWidget() : nullptr;
   QVBoxLayout *containerLayout =
       container ? qobject_cast<QVBoxLayout *>(container->layout()) : nullptr;
   if (!containerLayout || !m_paramsLayout) return;
@@ -2687,8 +2689,7 @@ void SettingsPage::applyCompactEditorLayout() {
     QLayoutItem *item = m_paramsLayout->itemAtPosition(paramEditorRow(p), 0);
     if (!item || !item->widget()) continue;
 
-    for (QLineEdit *lineEdit :
-         item->widget()->findChildren<QLineEdit *>()) {
+    for (QLineEdit *lineEdit : item->widget()->findChildren<QLineEdit *>()) {
       unifiedWidth = std::max(
           unifiedWidth, compactNumericFieldWidth(lineEdit, m_editedStyle, p));
     }
