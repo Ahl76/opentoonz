@@ -2705,8 +2705,11 @@ void SettingsPage::applyCompactEditorLayout() {
     }
   }
 
-  // Expand every editor row so sliders/combos fill the panel width.
+  // INT/DOUBLE only. FILEPATH keeps its path field and browse button.
   for (int p = 0; p < pCount; ++p) {
+    const TColorStyle::ParamType type = m_editedStyle->getParamType(p);
+    if (type != TColorStyle::INT && type != TColorStyle::DOUBLE) continue;
+
     QLayoutItem *item = m_paramsLayout->itemAtPosition(paramEditorRow(p), 0);
     if (!item || !item->widget()) continue;
     configureCompactEditorRow(item->widget());
