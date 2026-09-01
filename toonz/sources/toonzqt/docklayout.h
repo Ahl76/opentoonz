@@ -143,8 +143,7 @@ public:
   void setActiveTab(Region *region, int index);
   void reorderTab(Region *region, int fromIndex, int toIndex);
   bool detachTabForDrag(DockWidget *item, Region *region,
-                        const QPoint &globalPos,
-                        const QPoint &grabOffsetInTab);
+                        const QPoint &globalPos, const QPoint &grabOffsetInTab);
   void showTabMergePreview(Region *region);
   void hideTabMergePreview();
   DockWidget *dockWidgetTitleBarAt(const QPoint &globalPos) const;

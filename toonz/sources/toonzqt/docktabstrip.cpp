@@ -323,8 +323,9 @@ void DockTabStrip::mouseMoveEvent(QMouseEvent *event) {
 //-------------------------------------
 
 void DockTabStrip::mouseReleaseEvent(QMouseEvent *event) {
-  const bool wasReorder = m_reordering && !m_dragOutStarted && m_pressIndex >= 0;
-  const bool wasClick   = !m_dragOutStarted && !m_reordering &&
+  const bool wasReorder =
+      m_reordering && !m_dragOutStarted && m_pressIndex >= 0;
+  const bool wasClick = !m_dragOutStarted && !m_reordering &&
                         m_pressIndex >= 0 && m_pressIndex < count();
 
   if (wasReorder) commitTabReorder();

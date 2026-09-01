@@ -665,11 +665,10 @@ void Region::setTabGroup(const std::vector<DockWidget *> &panels,
     return;
   }
 
-  m_tabItems       = panels;
-  m_activeTabIndex = (activeIndex >= 0 && activeIndex < (int)panels.size())
-                         ? activeIndex
-                         : 0;
-  m_item           = activeTab();
+  m_tabItems = panels;
+  m_activeTabIndex =
+      (activeIndex >= 0 && activeIndex < (int)panels.size()) ? activeIndex : 0;
+  m_item = activeTab();
 }
 
 //------------------------------------------------------

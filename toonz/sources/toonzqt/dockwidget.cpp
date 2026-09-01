@@ -158,7 +158,8 @@ void DockWidget::clearDockPlaceholders() {
   for (unsigned int i = 0; i < m_placeholders.size(); ++i) {
     if (m_placeholders[i]) m_placeholders[i]->hide();
   }
-  for (unsigned int i = 0; i < m_placeholders.size(); ++i) delete m_placeholders[i];
+  for (unsigned int i = 0; i < m_placeholders.size(); ++i)
+    delete m_placeholders[i];
   m_placeholders.clear();
 }
 
@@ -395,7 +396,7 @@ void DockWidget::mouseReleaseEvent(QMouseEvent *me) {
 
     if (m_floating && m_selectedPlace) {
       if (m_selectedPlace->getAttribute() == DockPlaceholder::tabJoinTarget) {
-        Region *region = m_selectedPlace->getParentRegion();
+        Region *region     = m_selectedPlace->getParentRegion();
         DockWidget *target = region ? region->activeTab() : 0;
         if (target) m_parentLayout->mergePanelsAsTabs(this, target);
       } else {
