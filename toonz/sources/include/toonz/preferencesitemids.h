@@ -44,6 +44,7 @@ enum PreferencesItemId {
   displayIn30bit,
   viewerIndicatorEnabled,
   restoreViewerViewFromLastSession,
+  RestoreStyleEditorTab,
 
   //----------
   // Visualization
