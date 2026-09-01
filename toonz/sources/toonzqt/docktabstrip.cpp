@@ -5,187 +5,35 @@
 #include "docklayout.h"
 #include "toonzqt/gutil.h"
 
-#include <QApplication>
-#include <QImage>
 #include <QMouseEvent>
 #include <QPainter>
-#include <QPixmap>
-#include <QStyle>
-#include <QStyleOptionTab>
-#include <QStyleOptionToolButton>
-#include <QToolButton>
 #include <algorithm>
 #include <cmath>
-
-namespace {
-
-// Samples the actual color the active theme paints for a checked/selected
-// tool button (e.g. the selected tool in the toolbar, or a selected preset
-// in the Brush Presets panel) so the hover-join frame always matches the
-// current theme's accent, whatever it is.
-QColor dockThemeAccentColor() {
-  static const QColor kFallback(0x7f, 0xdb, 0xfc);
-
-  static QToolButton *probe = 0;
-  if (!probe) {
-    probe = new QToolButton();
-    probe->setAttribute(Qt::WA_DontShowOnScreen);
-    probe->setCheckable(true);
-    probe->setChecked(true);
-    probe->setAutoRaise(false);
-    probe->resize(20, 20);
-  }
-
-  probe->style()->unpolish(probe);
-  probe->style()->polish(probe);
-  probe->ensurePolished();
-
-  QImage img(probe->size(), QImage::Format_ARGB32_Premultiplied);
-  img.fill(Qt::transparent);
-  QPainter painter(&img);
-  QStyleOptionToolButton opt;
-  opt.initFrom(probe);
-  opt.state |= QStyle::State_On | QStyle::State_Raised | QStyle::State_Enabled;
-  opt.rect = probe->rect();
-  probe->style()->drawComplexControl(QStyle::CC_ToolButton, &opt, &painter,
-                                     probe);
-  painter.end();
-
-  const QColor sampled = img.pixelColor(img.width() / 2, img.height() / 2);
-  if (sampled.alpha() > 0) return sampled;
-
-  return kFallback;
-}
-
-// QTabBar::initStyleOption() is protected; this tiny subclass exposes it
-// so the probe functions below can build a QStyleOptionTab that exactly
-// matches what the real tab bar would hand to the style/stylesheet.
-class ProbeTabBar final : public QTabBar {
-public:
-  using QTabBar::QTabBar;
-  void initOption(QStyleOptionTab *opt, int index) const {
-    initStyleOption(opt, index);
-  }
-};
-
-// Renders a single tab's text label through the live style/stylesheet onto
-// a transparent surface (CE_TabBarTabLabel paints only the label, not the
-// tab background), so the returned color is whatever the active theme
-// actually resolves for that state - no theme is ever assumed or hardcoded.
-QColor probeTabTextColor(ProbeTabBar &probe, int index) {
-  QStyleOptionTab opt;
-  probe.initOption(&opt, index);
-
-  QImage img(opt.rect.size(), QImage::Format_ARGB32_Premultiplied);
-  img.fill(Qt::transparent);
-  QPainter painter(&img);
-  painter.translate(-opt.rect.topLeft());
-  probe.style()->drawControl(QStyle::CE_TabBarTabLabel, &opt, &painter,
-                             &probe);
-  painter.end();
-
-  long long r = 0, g = 0, b = 0, n = 0;
-  for (int y = 0; y < img.height(); ++y) {
-    for (int x = 0; x < img.width(); ++x) {
-      const QColor c = img.pixelColor(x, y);
-      if (c.alpha() < 40) continue;  // skip anti-aliased/background pixels.
-      r += c.red();
-      g += c.green();
-      b += c.blue();
-      ++n;
-    }
-  }
-  if (n == 0) return QColor();
-  return QColor(int(r / n), int(g / n), int(b / n));
-}
-
-// Renders just a tab's background/border (CE_TabBarTabShape, no label)
-// through the live style, then samples a corner pixel far from any text -
-// this is the true background tone that theme paints for that tab, used as
-// the fallback wash color instead of any assumed/hardcoded value.
-QColor probeTabBackgroundColor(ProbeTabBar &probe, int index) {
-  QStyleOptionTab opt;
-  probe.initOption(&opt, index);
-
-  QImage img(opt.rect.size(), QImage::Format_ARGB32_Premultiplied);
-  img.fill(Qt::transparent);
-  QPainter painter(&img);
-  painter.translate(-opt.rect.topLeft());
-  probe.style()->drawControl(QStyle::CE_TabBarTabShape, &opt, &painter,
-                             &probe);
-  painter.end();
-
-  const int x = std::min(4, img.width() - 1);
-  const int y = std::max(img.height() - 4, 0);
-  const QColor sampled = img.pixelColor(x, y);
-  return sampled.alpha() > 0 ? sampled : QColor(Qt::transparent);
-}
-
-// Measures - by actually rendering through the live stylesheet, not by
-// assuming anything about any particular theme - whether the current theme
-// already gives a selected tab's text a visibly different color from an
-// unselected one. Bundled themes mostly do (dimmed alpha vs. opaque), but a
-// couple leave both states identical; this only kicks in for those, using a
-// wash color sampled from that same theme rather than a fixed hardcoded hue.
-struct TabTextContrast {
-  bool needsWash = false;
-  QColor washColor;
-};
-
-const TabTextContrast &dockTabTextContrast() {
-  static QString cachedStyleSheet;
-  static TabTextContrast cached;
-
-  const QString liveStyleSheet = qApp ? qApp->styleSheet() : QString();
-  if (!cachedStyleSheet.isNull() && liveStyleSheet == cachedStyleSheet)
-    return cached;
-  cachedStyleSheet = liveStyleSheet;
-
-  TabBarContainter container;
-  container.setAttribute(Qt::WA_DontShowOnScreen);
-  container.resize(160, 28);
-
-  ProbeTabBar probe(&container);
-  probe.setDrawBase(false);
-  probe.setDocumentMode(true);
-  probe.addTab(QStringLiteral("Ag"));
-  probe.addTab(QStringLiteral("Ag"));
-  probe.resize(160, 28);
-  probe.setCurrentIndex(0);  // Tab 0 selected, tab 1 is the plain state.
-  container.ensurePolished();
-  probe.ensurePolished();
-
-  const QColor selectedColor   = probeTabTextColor(probe, 0);
-  const QColor unselectedColor = probeTabTextColor(probe, 1);
-
-  if (!selectedColor.isValid() || !unselectedColor.isValid()) {
-    cached.needsWash = false;
-  } else {
-    const int distance = std::abs(selectedColor.red() - unselectedColor.red()) +
-                         std::abs(selectedColor.green() - unselectedColor.green()) +
-                         std::abs(selectedColor.blue() - unselectedColor.blue());
-    cached.needsWash = distance < 24;  // near-identical: theme doesn't dim.
-  }
-  // Wash toward the tab's own (unselected) background tone, sampled live,
-  // so the fallback still adapts to whatever theme triggered it.
-  const QColor bg = probeTabBackgroundColor(probe, 1);
-  cached.washColor = bg.alpha() > 0 ? bg : container.palette().color(QPalette::Window);
-
-  return cached;
-}
-
-}  // namespace
 
 const int DockTabStrip::kHeight              = 26;
 const int DockTabStrip::kUndockDragThreshold = 8;
 
+namespace {
+
+//! Accent color published by the active theme in its :TOONZCOLORS block, the
+//! same channel the icon colors go through. ThemeManager re-reads it whenever
+//! the stylesheet changes, so switching themes needs no restart. The fallback
+//! only ever applies to third-party themes written before the property.
+QColor themeAccentColor() {
+  static const QColor fallback(0x4f, 0x7b, 0xc7);
+  return ThemeManager::getInstance().getCustomPropertyColor("hl-color",
+                                                            fallback);
+}
+
+}  // namespace
+
 //========================================================
 
-DockJoinHighlight::DockJoinHighlight(QWidget *parent)
+DockTabMergePreview::DockTabMergePreview(QWidget *parent)
     : QWidget(parent, Qt::Tool | Qt::FramelessWindowHint |
                           Qt::WindowTransparentForInput |
                           Qt::WindowDoesNotAcceptFocus) {
-  setObjectName("DockJoinHighlight");
+  setObjectName("DockTabMergePreview");
   setAttribute(Qt::WA_TranslucentBackground);
   setAttribute(Qt::WA_ShowWithoutActivating);
   setAutoFillBackground(false);
@@ -193,14 +41,18 @@ DockJoinHighlight::DockJoinHighlight(QWidget *parent)
 
 //-------------------------------------
 
-void DockJoinHighlight::paintEvent(QPaintEvent *event) {
+QColor DockTabMergePreview::frameColor() const {
+  return m_frameColor.isValid() ? m_frameColor : themeAccentColor();
+}
+
+//-------------------------------------
+
+void DockTabMergePreview::paintEvent(QPaintEvent *event) {
   Q_UNUSED(event);
 
   QPainter painter(this);
   painter.setRenderHint(QPainter::Antialiasing);
-
-  QPen pen(dockThemeAccentColor(), 2);
-  painter.setPen(pen);
+  painter.setPen(QPen(frameColor(), 2));
   painter.setBrush(Qt::NoBrush);
   painter.drawRect(rect().adjusted(1, 1, -2, -2));
 }
@@ -214,8 +66,7 @@ DockTabStrip::DockTabStrip(DockLayout *layout, Region *region, QWidget *parent)
     , m_pressIndex(-1)
     , m_dragOutStarted(false)
     , m_reordering(false)
-    , m_dropGapIndex(-1)
-    , m_dimInactiveTabs(false) {
+    , m_insertionGapIndex(-1) {
   setObjectName("DockTabStrip");
   setDrawBase(false);
   setDocumentMode(true);
@@ -234,11 +85,18 @@ DockTabStrip::DockTabStrip(DockLayout *layout, Region *region, QWidget *parent)
 
 //-------------------------------------
 
+QColor DockTabStrip::insertionMarkerColor() const {
+  return m_insertionMarkerColor.isValid() ? m_insertionMarkerColor
+                                          : themeAccentColor();
+}
+
+//-------------------------------------
+
 void DockTabStrip::syncFromRegion() {
   blockSignals(true);
   while (count()) removeTab(0);
 
-  if (!m_region || !m_region->isTabbed()) {
+  if (!m_region || !m_region->hasTabGroup()) {
     blockSignals(false);
     return;
   }
@@ -252,34 +110,11 @@ void DockTabStrip::syncFromRegion() {
 
   setCurrentIndex(m_region->activeTabIndex());
   blockSignals(false);
-
-  updateTabTextColors();
-}
-
-//-------------------------------------
-
-// Dim inactive tab titles with an opaque blend so Light/Neutral themes
-// (whose QSS forces solid black) still show a clear contrast. Alpha alone
-// is often ignored or invisible against light tab backgrounds.
-void DockTabStrip::updateTabTextColors() {
-  // The active theme's stylesheet always wins over setTabTextColor() for a
-  // styled #TabBarContainer QTabBar::tab, so this never fights the theme:
-  // it only measures (see dockTabTextContrast()) whether that theme's own
-  // :selected rule is actually visible, and if not, remembers a wash color
-  // - sampled from that same theme - for paintEvent() to apply as a subtle
-  // fallback. Themes that already differentiate are left untouched.
-  const TabTextContrast &contrast = dockTabTextContrast();
-  m_dimInactiveTabs                = contrast.needsWash;
-  m_dimWashColor                   = contrast.washColor;
-
-  for (int i = 0; i < count(); ++i) setTabTextColor(i, QColor());
-  update();
 }
 
 //-------------------------------------
 
 void DockTabStrip::onCurrentChanged(int index) {
-  updateTabTextColors();
   if (!m_layout || !m_region || index < 0 || m_dragOutStarted) return;
   m_layout->setActiveTab(m_region, index);
 }
@@ -291,8 +126,8 @@ void DockTabStrip::onCurrentChanged(int index) {
 // ones squeezed). A floor keeps many tabs readable and lets the strip's
 // scroll buttons take over instead of shrinking tabs further.
 QSize DockTabStrip::tabSizeHint(int index) const {
-  QSize hint          = QTabBar::tabSizeHint(index);
-  const int tabCount  = count();
+  QSize hint           = QTabBar::tabSizeHint(index);
+  const int tabCount   = count();
   const int stripWidth = width();
   if (tabCount > 0 && stripWidth > 0) {
     const int minTabWidth = 60;
@@ -316,40 +151,28 @@ void DockTabStrip::mouseDoubleClickEvent(QMouseEvent *event) {
 
 //-------------------------------------
 
-// Fallback for themes whose stylesheet does not itself distinguish a
-// selected tab's text from an unselected one (see dockTabTextContrast());
-// washes inactive tabs toward their own sampled background tone so their
-// text loses some contrast without any theme-specific color being assumed.
 void DockTabStrip::paintEvent(QPaintEvent *event) {
   QTabBar::paintEvent(event);
 
+  if (!m_reordering) return;
+
   QPainter painter(this);
-  if (m_dimInactiveTabs && m_dimWashColor.isValid()) {
-    QColor wash = m_dimWashColor;
-    wash.setAlphaF(0.45);
-    const int current = currentIndex();
-    for (int i = 0; i < count(); ++i) {
-      if (i == current) continue;
-      QRect r = tabRect(i);
-      if (!r.isValid()) continue;
-      r.adjust(1, 1, -1, -1);
-      painter.fillRect(r, wash);
-    }
-  }
+  paintReorderInsertionMarker(painter);
+}
 
-  // Vertical insertion mark while reordering (gap before tab i, or after last).
-  if (m_reordering && m_dropGapIndex >= 0 && m_dropGapIndex <= count() &&
-      count() > 0) {
-    int x = 0;
-    if (m_dropGapIndex < count())
-      x = tabRect(m_dropGapIndex).left();
-    else
-      x = tabRect(count() - 1).right();
+//-------------------------------------
 
-    const int barW = 3;
-    QRect bar(x - barW / 2, 2, barW, height() - 4);
-    painter.fillRect(bar, dockThemeAccentColor());
-  }
+void DockTabStrip::paintReorderInsertionMarker(QPainter &painter) const {
+  if (m_insertionGapIndex < 0 || m_insertionGapIndex > count() || !count())
+    return;
+
+  const int x = m_insertionGapIndex < count()
+                    ? tabRect(m_insertionGapIndex).left()
+                    : tabRect(count() - 1).right();
+
+  const int markerWidth = 3;
+  painter.fillRect(QRect(x - markerWidth / 2, 2, markerWidth, height() - 4),
+                   insertionMarkerColor());
 }
 
 //-------------------------------------
@@ -376,12 +199,12 @@ void DockTabStrip::tryBeginDragOut(const QPoint &globalPos) {
   // once the panel shows its own title bar instead of the tab.
   const QPoint grabOffsetInTab = m_pressPos - tabRect(m_pressIndex).topLeft();
 
-  clearDropIndicator();
+  clearInsertionMarker();
   m_reordering     = false;
   m_dragOutStarted = true;
   releaseMouse();
 
-  if (m_layout->beginTabDragOut(item, region, globalPos, grabOffsetInTab))
+  if (m_layout->detachTabForDrag(item, region, globalPos, grabOffsetInTab))
     return;
 
   m_dragOutStarted = false;
@@ -389,12 +212,10 @@ void DockTabStrip::tryBeginDragOut(const QPoint &globalPos) {
 
 //-------------------------------------
 
-// Gap index under the cursor: 0 = before first tab, count() = after last.
-int DockTabStrip::dropGapAt(const QPoint &pos) const {
+int DockTabStrip::insertionGapAt(const QPoint &pos) const {
   const int n = count();
   if (n <= 0) return -1;
 
-  if (pos.x() < tabRect(0).center().x()) return 0;
   for (int i = 0; i < n; ++i) {
     const QRect r = tabRect(i);
     if (!r.isValid()) continue;
@@ -405,35 +226,32 @@ int DockTabStrip::dropGapAt(const QPoint &pos) const {
 
 //-------------------------------------
 
-void DockTabStrip::setDropGapIndex(int gap) {
-  if (gap == m_dropGapIndex) return;
-  m_dropGapIndex = gap;
+void DockTabStrip::setInsertionGapIndex(int gap) {
+  if (gap == m_insertionGapIndex) return;
+  m_insertionGapIndex = gap;
   update();
 }
 
 //-------------------------------------
 
-void DockTabStrip::clearDropIndicator() {
-  if (m_dropGapIndex < 0) return;
-  m_dropGapIndex = -1;
-  update();
-}
+void DockTabStrip::clearInsertionMarker() { setInsertionGapIndex(-1); }
 
 //-------------------------------------
 
 void DockTabStrip::commitTabReorder() {
   if (!m_layout || !m_region || !m_reordering) return;
   if (m_pressIndex < 0 || m_pressIndex >= count()) return;
-  if (m_dropGapIndex < 0 || m_dropGapIndex > count()) return;
+  if (m_insertionGapIndex < 0 || m_insertionGapIndex > count()) return;
 
   // Dropping in the gaps immediately before/after the source is a no-op.
-  if (m_dropGapIndex == m_pressIndex || m_dropGapIndex == m_pressIndex + 1)
+  if (m_insertionGapIndex == m_pressIndex ||
+      m_insertionGapIndex == m_pressIndex + 1)
     return;
 
-  // Convert insertion gap → destination index for moveTab (erase then insert).
-  int toIndex = m_dropGapIndex;
+  // Convert insertion gap into a destination index (erase, then insert).
+  int toIndex = m_insertionGapIndex;
   if (toIndex > m_pressIndex) --toIndex;
-  m_layout->moveTab(m_region, m_pressIndex, toIndex);
+  m_layout->reorderTab(m_region, m_pressIndex, toIndex);
 }
 
 //-------------------------------------
@@ -445,7 +263,7 @@ void DockTabStrip::mousePressEvent(QMouseEvent *event) {
     m_globalPressPos = event->globalPos();
     m_dragOutStarted = false;
     m_reordering     = false;
-    clearDropIndicator();
+    clearInsertionMarker();
 
     if (m_pressIndex >= 0) {
       grabMouse();
@@ -467,13 +285,11 @@ void DockTabStrip::mouseMoveEvent(QMouseEvent *event) {
   }
 
   const QPoint delta = event->globalPos() - m_globalPressPos;
-  const int distance =
-      std::max(std::abs(delta.x()), std::abs(delta.y()));
+  const int distance = std::max(std::abs(delta.x()), std::abs(delta.y()));
 
   if (distance >= kUndockDragThreshold) {
-    const bool outsideStrip = isOutsideTabStrip(event->globalPos());
-    const bool verticalIntent =
-        std::abs(delta.y()) > std::abs(delta.x());
+    const bool outsideStrip   = isOutsideTabStrip(event->globalPos());
+    const bool verticalIntent = std::abs(delta.y()) > std::abs(delta.x());
 
     // Same spirit as docked title-bar undock: any significant move can detach.
     // Horizontal moves inside the strip preview a reorder instead.
@@ -493,17 +309,16 @@ void DockTabStrip::mouseMoveEvent(QMouseEvent *event) {
       return;
     }
 
-    if (m_pressIndex < 0 || m_pressIndex >= count()) {
+    if (m_pressIndex >= count()) {
       QTabBar::mouseMoveEvent(event);
       return;
     }
 
-    // Preview only: update the insertion bar, commit on mouse release.
-    const int gap = dropGapAt(event->pos());
+    const int gap = insertionGapAt(event->pos());
     if (gap == m_pressIndex || gap == m_pressIndex + 1)
-      clearDropIndicator();
+      clearInsertionMarker();
     else
-      setDropGapIndex(gap);
+      setInsertionGapIndex(gap);
   }
 
   event->accept();
@@ -512,9 +327,8 @@ void DockTabStrip::mouseMoveEvent(QMouseEvent *event) {
 //-------------------------------------
 
 void DockTabStrip::mouseReleaseEvent(QMouseEvent *event) {
-  const bool wasReorder =
-      m_reordering && !m_dragOutStarted && m_pressIndex >= 0;
-  const bool wasClick = !m_dragOutStarted && !m_reordering &&
+  const bool wasReorder = m_reordering && !m_dragOutStarted && m_pressIndex >= 0;
+  const bool wasClick   = !m_dragOutStarted && !m_reordering &&
                         m_pressIndex >= 0 && m_pressIndex < count();
 
   if (wasReorder) commitTabReorder();
@@ -523,7 +337,7 @@ void DockTabStrip::mouseReleaseEvent(QMouseEvent *event) {
 
   if (wasClick) setCurrentIndex(m_pressIndex);
 
-  clearDropIndicator();
+  clearInsertionMarker();
   m_pressIndex     = -1;
   m_dragOutStarted = false;
   m_reordering     = false;

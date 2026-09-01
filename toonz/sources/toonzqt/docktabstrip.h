@@ -5,8 +5,11 @@
 
 #include "tcommon.h"
 
+#include <QColor>
 #include <QTabBar>
 #include <QWidget>
+
+class QPainter;
 
 #undef DVAPI
 #undef DVVAR
@@ -22,19 +25,32 @@ class DockLayout;
 class Region;
 class DockWidget;
 
-//! Frame drawn around a panel targeted by hover-join (theme accent color).
-class DVAPI DockJoinHighlight final : public QWidget {
+//! Frame previewing the region a dragged panel would be merged into as a
+//! tab. It defaults to the theme's accent color and can be overridden per
+//! theme through the "frameColor" stylesheet property.
+class DVAPI DockTabMergePreview final : public QWidget {
+  Q_OBJECT
+  Q_PROPERTY(QColor frameColor READ frameColor WRITE setFrameColor)
+
+  QColor m_frameColor;
+
 public:
-  explicit DockJoinHighlight(QWidget *parent);
+  explicit DockTabMergePreview(QWidget *parent);
+
+  QColor frameColor() const;
+  void setFrameColor(const QColor &color) { m_frameColor = color; }
 
 protected:
   void paintEvent(QPaintEvent *event) override;
 };
 
-//! Tab bar shown above docked panels that have been merged via hover-join.
-//! Supports tab reordering (horizontal drag) and drag-out to float a panel.
+//! Tab bar shown above docked panels that have been merged into a tab
+//! group. Supports tab reordering (horizontal drag) and drag-out to float a
+//! panel.
 class DVAPI DockTabStrip final : public QTabBar {
   Q_OBJECT
+  Q_PROPERTY(QColor insertionMarkerColor READ insertionMarkerColor WRITE
+                 setInsertionMarkerColor)
 
   DockLayout *m_layout;
   Region *m_region;
@@ -44,21 +60,16 @@ class DVAPI DockTabStrip final : public QTabBar {
   bool m_dragOutStarted;
   bool m_reordering;
   // Insertion gap while reordering: 0 .. count() (gap after last tab).
-  // -1 means no drop target / indicator hidden.
-  int m_dropGapIndex;
-  // Whether the active theme's own stylesheet fails to visually
-  // distinguish a selected tab's text from an unselected one (measured at
-  // runtime, see updateTabTextColors()), and if so, the tab's own sampled
-  // background tone used to wash its text down a bit.
-  bool m_dimInactiveTabs;
-  QColor m_dimWashColor;
+  // -1 means no drop target / marker hidden.
+  int m_insertionGapIndex;
+  QColor m_insertionMarkerColor;
 
   bool isOutsideTabStrip(const QPoint &globalPos) const;
   void tryBeginDragOut(const QPoint &globalPos);
-  void updateTabTextColors();
-  int dropGapAt(const QPoint &pos) const;
-  void setDropGapIndex(int gap);
-  void clearDropIndicator();
+  int insertionGapAt(const QPoint &pos) const;
+  void setInsertionGapIndex(int gap);
+  void clearInsertionMarker();
+  void paintReorderInsertionMarker(QPainter &painter) const;
   void commitTabReorder();
 
 public:
@@ -68,6 +79,11 @@ public:
   DockTabStrip(DockLayout *layout, Region *region, QWidget *parent);
   void syncFromRegion();
   void rebindRegion(Region *region) { m_region = region; }
+
+  QColor insertionMarkerColor() const;
+  void setInsertionMarkerColor(const QColor &color) {
+    m_insertionMarkerColor = color;
+  }
 
 public slots:
   void onCurrentChanged(int index);

@@ -151,7 +151,7 @@ DockWidget::~DockWidget() {
 //! at drag ends.
 void DockWidget::clearDockPlaceholders() {
   // Layout may already have been destroyed during application shutdown.
-  if (m_parentLayout) m_parentLayout->clearJoinHighlight();
+  if (m_parentLayout) m_parentLayout->hideTabMergePreview();
 
   // Placeholders are child widgets; hide first so a partially torn-down
   // parent does not touch them again while we delete.
@@ -295,18 +295,30 @@ void DockWidget::mousePressEvent(QMouseEvent *me) {
       // docked panel's screen position now so undock keeps the grab point.
       m_dragInitialPos = parentWidget()->mapToGlobal(m_dragInitialPos);
 
-      // Also remember the click offset relative to the drag grip's (title
-      // bar's) own top-left. Once undocked, the appearance transition may
-      // shift the grip within the panel (e.g. a frame margin appears around
-      // custom title bars); recomputing the anchor from this offset - using
-      // the grip's *actual* position right after the transition - keeps the
-      // exact clicked pixel glued to the cursor with no drift.
-      QWidget *grip = this;
-      if (TDockWidget *tdw = qobject_cast<TDockWidget *>(this))
-        if (QWidget *titleBar = tdw->titleBarWidget()) grip = titleBar;
-      m_dragGripPressOffset = me->globalPos() - grip->mapToGlobal(QPoint(0, 0));
+      m_dragGripPressOffset =
+          me->globalPos() - dragGrip()->mapToGlobal(QPoint(0, 0));
     }
   }
+}
+
+//-------------------------------------
+
+QWidget *DockWidget::dragGrip() {
+  if (TDockWidget *tdw = qobject_cast<TDockWidget *>(this))
+    if (QWidget *titleBar = tdw->titleBarWidget()) return titleBar;
+  return this;
+}
+
+//-------------------------------------
+
+//! Offset of the drag grip inside the panel, measured once the pending
+//! docked/floating appearance change has actually been laid out: the custom
+//! title bar may end up shifted by a frame margin that only exists in one of
+//! the two states, and assuming a fixed margin makes the panel jump under
+//! the cursor.
+QPoint DockWidget::settledDragGripOffset() {
+  if (QLayout *l = layout()) l->activate();
+  return dragGrip()->mapToGlobal(QPoint(0, 0)) - mapToGlobal(QPoint(0, 0));
 }
 
 //-------------------------------------
@@ -360,21 +372,8 @@ void DockWidget::mouseMoveEvent(QMouseEvent *me) {
         // NOTE: mouse *must* be grabbed only when visible - see Qt manual.
         grabMouse();
 
-        // The panel's floating appearance (custom title bar + frame margin)
-        // is only fully in place once its layout has been activated. Read
-        // the drag grip's *actual*, current position afterwards - rather
-        // than assuming a fixed margin - so the pixel grabbed at press time
-        // lands right back under the cursor, however the transition shifted
-        // things.
-        if (QLayout *l = layout()) l->activate();
-        QWidget *grip = this;
-        if (TDockWidget *tdw = qobject_cast<TDockWidget *>(this))
-          if (QWidget *titleBar = tdw->titleBarWidget()) grip = titleBar;
-        const QPoint gripOffsetInWidget =
-            grip->mapToGlobal(QPoint(0, 0)) - mapToGlobal(QPoint(0, 0));
-
-        m_dragInitialPos =
-            correctedGlobalPos - m_dragGripPressOffset - gripOffsetInWidget;
+        m_dragInitialPos = correctedGlobalPos - m_dragGripPressOffset -
+                           settledDragGripOffset();
         m_dragMouseInitialPos = correctedGlobalPos;
         move(m_dragInitialPos);
 
@@ -397,12 +396,10 @@ void DockWidget::mouseReleaseEvent(QMouseEvent *me) {
     m_dragging = false;
 
     if (m_floating && m_selectedPlace) {
-      if (m_selectedPlace->getAttribute() == DockPlaceholder::tabify) {
+      if (m_selectedPlace->getAttribute() == DockPlaceholder::tabJoinTarget) {
         Region *region = m_selectedPlace->getParentRegion();
-        DockWidget *target =
-            region ? (region->isTabbed() ? region->activeTab() : region->getItem())
-                   : 0;
-        if (target) m_parentLayout->tabifyWithTarget(this, target);
+        DockWidget *target = region ? region->activeTab() : 0;
+        if (target) m_parentLayout->mergePanelsAsTabs(this, target);
       } else {
         m_parentLayout->dockItem(this, m_selectedPlace);
       }
@@ -410,7 +407,7 @@ void DockWidget::mouseReleaseEvent(QMouseEvent *me) {
       DockWidget *titleTarget =
           m_parentLayout->dockWidgetTitleBarAt(me->globalPos());
       if (titleTarget && titleTarget != this)
-        m_parentLayout->tabifyWithTarget(this, titleTarget);
+        m_parentLayout->mergePanelsAsTabs(this, titleTarget);
     }
 
     // Clear dock placeholders
@@ -535,34 +532,33 @@ DockPlaceholder *DockWidget::placeOfSeparator(DockSeparator *sep) {
 void DockWidget::selectDockPlaceholder(QMouseEvent *me) {
   DockPlaceholder *selected = 0;
 
-  // Classic split docking has priority over hover-join (top/bottom/left/right).
+  // Classic split docking takes precedence: its drop zones are what users
+  // expect from the borders of a panel, tab joining only fills the gap.
   unsigned int i;
   for (i = 0; i < m_placeholders.size(); ++i) {
-    if (m_placeholders[i]->getAttribute() == DockPlaceholder::tabify) continue;
-    if (m_placeholders[i]->geometry().contains(me->globalPos())) {
+    if (m_placeholders[i]->getAttribute() == DockPlaceholder::tabJoinTarget)
+      continue;
+    if (m_placeholders[i]->geometry().contains(me->globalPos()))
       selected = m_placeholders[i];
-    }
   }
 
-  if (!selected) selected = tabifyPlaceholderAt(me->globalPos());
+  const bool joining = !selected;
+  if (joining) selected = tabJoinTargetAt(me->globalPos());
 
-  // Never show a split deco and a join highlight at the same time.
   if (m_selectedPlace != selected) {
     if (m_selectedPlace) m_selectedPlace->hide();
-    if (selected && selected->getAttribute() != DockPlaceholder::tabify)
-      selected->show();
+    if (selected && !joining) selected->show();
   }
 
   if (m_parentLayout) {
-    if (selected && selected->getAttribute() == DockPlaceholder::tabify) {
-      // Hide any leftover visible split deco before drawing the join band.
+    if (joining && selected) {
       for (i = 0; i < m_placeholders.size(); ++i) {
-        if (m_placeholders[i]->getAttribute() != DockPlaceholder::tabify)
+        if (m_placeholders[i]->getAttribute() != DockPlaceholder::tabJoinTarget)
           m_placeholders[i]->hide();
       }
-      m_parentLayout->setJoinHighlight(selected->getParentRegion());
+      m_parentLayout->showTabMergePreview(selected->getParentRegion());
     } else {
-      m_parentLayout->clearJoinHighlight();
+      m_parentLayout->hideTabMergePreview();
     }
   }
 
@@ -571,11 +567,10 @@ void DockWidget::selectDockPlaceholder(QMouseEvent *me) {
 
 //-------------------------------------
 
-DockPlaceholder *DockWidget::tabifyPlaceholderAt(
-    const QPoint &globalPos) const {
-  unsigned int i;
-  for (i = 0; i < m_placeholders.size(); ++i) {
-    if (m_placeholders[i]->getAttribute() != DockPlaceholder::tabify) continue;
+DockPlaceholder *DockWidget::tabJoinTargetAt(const QPoint &globalPos) const {
+  for (unsigned int i = 0; i < m_placeholders.size(); ++i) {
+    if (m_placeholders[i]->getAttribute() != DockPlaceholder::tabJoinTarget)
+      continue;
     if (m_placeholders[i]->geometry().contains(globalPos))
       return m_placeholders[i];
   }
@@ -622,14 +617,14 @@ inline void DockPlaceholder::buildGeometry() {
       // QPoint center= parentRect.center();
       // relativeToMainRect= QRect(center - QPoint(50,50), center +
       // QPoint(50,50));
-    } else if (getAttribute() == tabify) {
+    } else if (getAttribute() == tabJoinTarget) {
       Region *region = getParentRegion();
-      int top         = parentRect.top();
-      int left        = parentRect.left();
-      int width       = parentRect.width();
-      int height      = 24;
+      int top        = parentRect.top();
+      int left       = parentRect.left();
+      int width      = parentRect.width();
+      int height     = 24;
 
-      if (region && region->isTabbed()) {
+      if (region && region->hasTabGroup()) {
         height = m_owner->parentLayout()->tabStripHeight();
       } else {
         TDockWidget *target =

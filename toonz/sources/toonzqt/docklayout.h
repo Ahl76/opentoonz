@@ -7,6 +7,7 @@
 
 #include <QWidget>
 #include <QAction>
+#include <QPointer>
 
 #include <deque>
 #include <vector>
@@ -34,10 +35,22 @@ class DockPlaceholder;
 class DockSeparator;
 class DockDecoAllocator;
 class DockTabStrip;
-class DockJoinHighlight;
+class DockTabMergePreview;
 class TabBarContainter;
 
 class Region;
+
+//! Whether a tab strip widget can be destroyed right away, or only once the
+//! current event handler has returned (it may be the sender of that event).
+enum class StripDeletion { Immediate, Deferred };
+
+//! How much of the layout has to be recomputed once a dock operation has
+//! finished mutating the region tree.
+enum class LayoutUpdate {
+  Geometry,            //!< Re-apply known region geometries.
+  GeometryAndRepaint,  //!< ... and repaint the layout's parent widget.
+  Full                 //!< Recompute the partition, then apply and repaint.
+};
 
 //========================================================================
 
@@ -74,6 +87,8 @@ public:
   \sa DockWidget and DockSeparator classes.
 */
 class DVAPI DockLayout final : public QLayout {
+  friend class Region;  // Region routes tab strip deletion back to the layout
+
   std::vector<QLayoutItem *> m_items;
   std::deque<Region *> m_regions;
 
@@ -83,14 +98,16 @@ class DVAPI DockLayout final : public QLayout {
   // Decoration-related allocator (separators)
   DockDecoAllocator *m_decoAllocator;
 
-  DockJoinHighlight *m_joinHighlight;
-  Region *m_joinHighlightRegion;
+  DockTabMergePreview *m_tabMergePreview;
+  Region *m_tabMergeTargetRegion;
 
 public:
   DockLayout();
   virtual ~DockLayout();
 
-  static bool canParticipateInTabGroup(const DockWidget *widget);
+  //! Whether \b widget may be merged into a tab group. Panels can opt out
+  //! explicitly through the "canJoinDockTabs" property.
+  static bool supportsTabGrouping(const DockWidget *widget);
 
   // QLayout item handling (see Qt reference)
   int count(void) const override;
@@ -121,16 +138,15 @@ public:
   bool undockItem(DockWidget *item);
   void calculateDockPlaceholders(DockWidget *item);
 
-  // Hover-join (tabify) support
-  void tabifyItem(DockWidget *item, Region *region);
-  void tabifyWithTarget(DockWidget *item, DockWidget *target);
+  // Hover-join (tab group) support
+  void mergePanelsAsTabs(DockWidget *item, DockWidget *target);
   void setActiveTab(Region *region, int index);
-  void moveTab(Region *region, int fromIndex, int toIndex);
-  bool beginTabDragOut(DockWidget *item, Region *region,
-                       const QPoint &globalPos,
-                       const QPoint &grabOffsetInTab);
-  void setJoinHighlight(Region *region);
-  void clearJoinHighlight();
+  void reorderTab(Region *region, int fromIndex, int toIndex);
+  bool detachTabForDrag(DockWidget *item, Region *region,
+                        const QPoint &globalPos,
+                        const QPoint &grabOffsetInTab);
+  void showTabMergePreview(Region *region);
+  void hideTabMergePreview();
   DockWidget *dockWidgetTitleBarAt(const QPoint &globalPos) const;
   int tabStripHeight() const;
 
@@ -154,21 +170,35 @@ public:
 
 private:
   void applyGeometry();
+  void finishLayoutChange(LayoutUpdate update);
   inline void updateSeparatorCursors();
   Region *dockItemPrivate(DockWidget *item, Region *r, int idx);
 
   void ensureTabStrip(Region *region);
-  void destroyTabStrip(Region *region);
+  void destroyTabStrip(Region *region, StripDeletion deletion);
   void updateTabVisibility(Region *region);
-  void updateJoinHighlightGeometry();
+  void updateTabMergePreviewGeometry();
   void restorePanelTitleBar(DockWidget *item);
-  void restoreSingleDockedPanel(DockWidget *item);
-  void refreshTabbedRegionsVisibility();
+  void restoreDetachedPanelAppearance(DockWidget *item);
+  void normalizeSingleDockedPanel(DockWidget *item);
+  void normalizeTabGroupAppearance(Region *region);
+  void restoreDockedWidgetVisibility(DockWidget *keptVisible);
   Region *detachTabGroupAsSubRegion(Region *region);
   bool removeFromTabGroup(DockWidget *item, Region *region,
-                          bool deferStripDestroy = false);
+                          StripDeletion deletion);
   bool undockFromTabGroup(DockWidget *item, Region *region,
-                          bool deferStripDestroy = false);
+                          StripDeletion deletion);
+
+  // Steps of mergePanelsAsTabs(). These only mutate the region tree; the
+  // public operation performs the single closing layout update.
+  bool canMergeAsTabs(DockWidget *item, DockWidget *target) const;
+  Region *ensureDockedRegionForTarget(DockWidget *target);
+  bool detachPanelFromCurrentRegion(DockWidget *item, Region *destination);
+  void addPanelToTabGroup(DockWidget *item, Region *region);
+
+  // Placeholder helpers - called by calculateDockPlaceholders
+  void clearRegionPlaceholderReferences();
+  void addTabJoinTargets(DockWidget *item);
 
   // Insertion and removal check - called internally by dock/undockItem
   bool isPossibleInsertion(DockWidget *item, Region *parentRegion,
@@ -176,8 +206,11 @@ private:
   bool isPossibleRemoval(DockWidget *item, Region *parentRegion,
                          int removalIdx);
 
-  // Internal save function
+  // Internal save/restore functions
   void writeRegion(Region *r, QString &hierarchy);
+  bool parseTabGroup(const QStringList &tokens, int &pos, Region *region,
+                     std::vector<bool> &alreadyRestored) const;
+  void normalizeRestoredTabGeometries();
 };
 
 //========================================================================
@@ -240,11 +273,8 @@ protected:
 private:
   QPoint m_dragInitialPos;
   QPoint m_dragMouseInitialPos;
-  // Click offset relative to the title bar's (or drag grip's) own top-left,
-  // captured at press time. Used to re-anchor the panel precisely under the
-  // cursor right after a docked->floating transition, whose layout may shift
-  // the grip widget (e.g. a frame margin appearing around custom title
-  // bars).
+  // Click offset within the drag grip, captured at press time and used to
+  // re-anchor the panel under the cursor after a docked/floating transition.
   QPoint m_dragGripPressOffset;
 
   // Widget and Layout links
@@ -320,7 +350,7 @@ public:
 
   // Placeholders-related methods
   virtual void selectDockPlaceholder(QMouseEvent *me);
-  DockPlaceholder *tabifyPlaceholderAt(const QPoint &globalPos) const;
+  DockPlaceholder *tabJoinTargetAt(const QPoint &globalPos) const;
   void clearDockPlaceholders();
 
   // Decorations allocator
@@ -330,6 +360,9 @@ public:
   virtual void onDock(bool docked) {}
 
 private:
+  QWidget *dragGrip();
+  QPoint settledDragGripOffset();
+
   // Event handling
   // Basic events
   bool event(QEvent *e) override;
@@ -487,7 +520,9 @@ public:
     sepHor  = 4,
     sepVert = 5,
     root    = 6,
-    tabify  = 7
+    //! Hit area over a panel's title bar / tab strip, where a dragged panel
+    //! is merged as a tab instead of splitting the region.
+    tabJoinTarget = 7
   };
   int getAttribute() const { return m_attributes; }
   void setAttribute(int attribute) { m_attributes = attribute; }
@@ -554,11 +589,17 @@ class Region {
 
   int m_saveIndex;
 
-  // Tab group state (hover-join). Empty when the region hosts a single panel.
+  // Tab group membership. A group always holds at least two panels: a
+  // shorter list is normalized into a single-panel region by setTabGroup().
+  // Invariant: m_item is either the region's only panel, or - for a tab
+  // group - a mirror of the active tab, so that code walking leaf regions
+  // keeps seeing the panel that is actually on screen.
   std::vector<DockWidget *> m_tabItems;
   int m_activeTabIndex;
-  DockTabStrip *m_tabStrip;
-  TabBarContainter *m_tabStripContainer;
+  // The tab strip is a child widget of the layout's parent; the region only
+  // points at it. Deletion always goes through DockLayout::destroyTabStrip().
+  QPointer<DockTabStrip> m_tabStrip;
+  QPointer<TabBarContainter> m_tabStripContainer;
 
 public:
   Region(DockLayout *owner, DockWidget *item = 0)
@@ -566,14 +607,16 @@ public:
       , m_item(item)
       , m_parent(0)
       , m_orientation(0)
-      , m_activeTabIndex(0)
-      , m_tabStrip(0)
-      , m_tabStripContainer(0) {}
+      , m_activeTabIndex(0) {}
   ~Region();
 
   enum { inf = 1000000 };
   enum { horizontal = 0, vertical = 1 };
   enum { left = 0x1, right = 0x2, top = 0x4, bottom = 0x8 };
+
+  //! What a region holds. Transitions between these are performed only by
+  //! the setters below, so that the members backing them stay consistent.
+  enum class Content { Empty, SinglePanel, TabGroup, Split };
 
   // Getters - public
   bool getOrientation() const { return m_orientation; }
@@ -582,12 +625,17 @@ public:
   Region *getParent() const { return m_parent; }
   DockWidget *getItem() const { return m_item; }
 
-  bool isTabbed() const { return m_tabItems.size() > 1; }
+  Content content() const;
+  bool hasSinglePanel() const { return m_item && m_tabItems.empty(); }
+  bool hasTabGroup() const { return m_tabItems.size() > 1; }
+  bool hasChildren() const { return !m_childList.empty(); }
+
   const std::vector<DockWidget *> &tabItems() const { return m_tabItems; }
   int activeTabIndex() const { return m_activeTabIndex; }
   DockWidget *activeTab() const;
-  DockTabStrip *tabStrip() const { return m_tabStrip; }
-  TabBarContainter *tabStripContainer() const { return m_tabStripContainer; }
+  bool containsPanel(const DockWidget *panel) const;
+  DockTabStrip *tabStrip() const;
+  TabBarContainter *tabStripContainer() const;
 
   const std::deque<Region *> &getChildList() const { return m_childList; }
   Region *childRegion(int i) const { return m_childList[i]; }
@@ -610,6 +658,22 @@ private:
   void setSize(const QSizeF &size) { m_rect.setSize(size); }
   void setParent(Region *parent) { m_parent = parent; }
   void setItem(DockWidget *item) { m_item = item; }
+
+  // Tab group transitions. These are the only places where membership, the
+  // active index and the m_item mirror are updated together.
+  void setSinglePanel(DockWidget *panel);
+  void setTabGroup(const std::vector<DockWidget *> &panels, int activeIndex);
+  void appendTab(DockWidget *panel);
+  //! Returns the index the panel was removed from, or -1 if it was not a
+  //! member. The region falls back to a single panel when one tab is left.
+  int removeTab(DockWidget *panel);
+  void moveTab(int fromIndex, int toIndex);
+  void setActiveTabIndex(int index);
+  //! Moves membership, active tab and tab strip from \b source to \b this.
+  void adoptTabGroupFrom(Region *source);
+  void attachTabStrip(TabBarContainter *container, DockTabStrip *strip);
+  //! Gives up the tab strip without deleting it (see destroyTabStrip()).
+  void detachTabStrip();
 
   // Insertion and removal methods
   void insertSubRegion(Region *subregion, int idx);

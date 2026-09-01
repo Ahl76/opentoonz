@@ -361,13 +361,13 @@ TDockPlaceholder::TDockPlaceholder(DockWidget *owner, Region *r, int idx,
     : DockPlaceholder(owner, r, idx, attributes) {
   setAutoFillBackground(true);
 
-  if (attributes == DockPlaceholder::tabify)
-    setObjectName("TDockTabifyPlaceholder");
-  else
-    setObjectName("TDockPlaceholder");
+  const bool isTabJoinTarget = attributes == DockPlaceholder::tabJoinTarget;
 
-  // Tabify targets are highlighted on the panel itself; keep hit area invisible.
-  setWindowOpacity(attributes == DockPlaceholder::tabify ? 0.0 : 0.8);
+  setObjectName(isTabJoinTarget ? "TDockTabJoinTarget" : "TDockPlaceholder");
+
+  // The merge preview is drawn around the target region itself, so the hit
+  // area stays invisible.
+  setWindowOpacity(isTabJoinTarget ? 0.0 : 0.8);
 }
 
 //----------------------------------------
@@ -484,7 +484,7 @@ void TDockWidget::selectDockPlaceholder(QMouseEvent *me) {
       if (selected) selected->show();
     }
 
-    if (parentLayout()) parentLayout()->clearJoinHighlight();
+    if (parentLayout()) parentLayout()->hideTabMergePreview();
 
     m_selectedPlace = selected;
   } else
