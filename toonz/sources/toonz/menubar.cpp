@@ -1460,6 +1460,8 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(playMenu, MI_LastFrame);
   addMenuItem(playMenu, MI_PrevFrame);
   addMenuItem(playMenu, MI_NextFrame);
+  addMenuItem(playMenu, MI_PrevFramePastEnd);
+  addMenuItem(playMenu, MI_NextFramePastEnd);
   addMenuItem(playMenu, MI_PrevStep);
   addMenuItem(playMenu, MI_NextStep);
   playMenu->addSeparator();

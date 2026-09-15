@@ -211,6 +211,8 @@
 #define MI_LastFrame "MI_LastFrame"
 #define MI_NextFrame "MI_NextFrame"
 #define MI_PrevFrame "MI_PrevFrame"
+#define MI_NextFramePastEnd "MI_NextFramePastEnd"
+#define MI_PrevFramePastEnd "MI_PrevFramePastEnd"
 #define MI_NextDrawing "MI_NextDrawing"
 #define MI_PrevDrawing "MI_PrevDrawing"
 #define MI_NextStep "MI_NextStep"
