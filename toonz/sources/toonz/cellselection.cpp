@@ -2913,6 +2913,61 @@ void TCellSelection::createBlankDrawings() {
 
 //-----------------------------------------------------------------------------
 
+void TCellSelection::insertBlankDrawing() {
+  TFrameHandle *fh = TApp::instance()->getCurrentFrame();
+  if (!fh->isEditingScene()) {
+    DVGui::warning(
+        QObject::tr("Insert Blank Drawing is available when editing the scene"));
+    return;
+  }
+
+  int col      = TApp::instance()->getCurrentColumn()->getColumnIndex();
+  int row      = fh->getFrameIndex();
+  TXsheet *xsh = TApp::instance()->getCurrentXsheet()->getXsheet();
+
+  if (col < 0) {
+    DVGui::warning(
+        QObject::tr("Unable to create a blank drawing on the camera column"));
+    return;
+  }
+
+  TXshColumn *column = xsh->getColumn(col);
+  if (column && column->isLocked()) {
+    DVGui::warning(QObject::tr("The current column is locked"));
+    return;
+  }
+
+  TXshCell cell   = xsh->getCell(row, col);
+  int targetRow   = row;
+  bool needInsert = false;
+
+  if (!cell.isEmpty()) {
+    targetRow = row + 1;
+    while (xsh->getCell(targetRow, col) == cell) ++targetRow;
+    // Insert only when the next cell is already a drawing.
+    needInsert = !xsh->getCell(targetRow, col).isEmpty();
+  }
+
+  if (needInsert) {
+    TUndoManager::manager()->beginBlock();
+    Range range;
+    range.m_r0 = range.m_r1 = targetRow;
+    range.m_c0 = range.m_c1 = col;
+    InsertUndo *undo        = new InsertUndo(range);
+    undo->redo();
+    TUndoManager::manager()->add(undo);
+  }
+
+  createBlankDrawing(targetRow, col, false);
+
+  if (needInsert) {
+    TUndoManager::manager()->endBlock();
+    TApp::instance()->getCurrentScene()->setDirtyFlag(true);
+  }
+}
+
+//-----------------------------------------------------------------------------
+
 void TCellSelection::duplicateFrame(int row, int col, bool multiple) {
   TXsheet *xsh = TApp::instance()->getCurrentXsheet()->getXsheet();
 
@@ -3942,3 +3997,14 @@ void TCellSelection::fillEmptyCell() {
 
   TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
 }
+
+//-----------------------------------------------------------------------------
+
+class InsertBlankDrawingCommand final : public MenuItemHandler {
+public:
+  InsertBlankDrawingCommand() : MenuItemHandler(MI_InsertBlankDrawing) {}
+  void execute() override {
+    TCellSelection selection;
+    selection.insertBlankDrawing();
+  }
+} insertBlankDrawingCommand;
