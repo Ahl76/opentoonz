@@ -2916,8 +2916,8 @@ void TCellSelection::createBlankDrawings() {
 void TCellSelection::insertBlankDrawing() {
   TFrameHandle *fh = TApp::instance()->getCurrentFrame();
   if (!fh->isEditingScene()) {
-    DVGui::warning(
-        QObject::tr("Insert Blank Drawing is available when editing the scene"));
+    DVGui::warning(QObject::tr(
+        "Insert Blank Drawing is available when editing the scene"));
     return;
   }
 
