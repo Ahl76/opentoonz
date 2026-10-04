@@ -298,6 +298,11 @@ class ColumnArea final : public QWidget {
   int m_col;
   int m_noteSliderDragCol;
   int m_noteSliderKind;
+  QTimer *m_noteStepHoldTimer;
+  int m_noteStepHoldCol;
+  int m_noteStepHoldKind;
+  QRect m_noteStepHoldSlot;
+  bool m_noteStepHoldIncrease;
   DVGui::ColorField *m_noteColorField;
   int m_noteColorCol;
   int m_noteColorPencil;
@@ -412,6 +417,12 @@ protected slots:
   void onXsheetCameraChange(int);
   void onSetMask(int);
   void onNoteInkColorChanged(const TPixel32 &color, bool isDragging);
+  void onNoteInkStepHoldTimeout();
+
+  void stopNoteInkStepHold();
+  void startNoteInkStepHold(int col, int kind, const QRect &slot, bool increase);
+  void applyNoteInkTimelineStep(int col, int kind, const QRect &slot,
+                                bool increase);
 };
 
 //-----------------------------------------------------------------------------

@@ -301,6 +301,38 @@ void drawNoteInkPegbarRow(QPainter &p, XsheetViewer *viewer, int col,
                            viewer->isNoteCellTextMode(col));
 }
 
+void drawNoteInkGapStepButtons(QPainter &p, const QRect &slot) {
+  if (slot.width() < 4 || slot.height() < 4) return;
+  const QColor glyph = noteInkHeaderGlyphColor();
+  p.setBrush(glyph);
+  p.setPen(Qt::NoPen);
+  const int inset = qMax(0, qMin(slot.width(), slot.height()) / 12);
+  QRect inner     = slot.adjusted(inset, inset, -inset, -inset);
+  if (inner.width() < 4 || inner.height() < 4) inner = slot;
+
+  // Timeline: left/right pairs use the full zone height (readable at small sizes).
+  const int gap = qMax(1, inner.width() / 8);
+  int triW      = (inner.width() - gap) / 2;
+  triW          = qMax(4, qMin(triW, inner.height()));
+  const int cy  = inner.center().y();
+  QPolygonF left;
+  left << QPointF(inner.left(), cy)
+       << QPointF(inner.left() + triW, inner.top())
+       << QPointF(inner.left() + triW, inner.bottom());
+  p.drawPolygon(left);
+  QPolygonF right;
+  right << QPointF(inner.right(), cy)
+        << QPointF(inner.right() - triW, inner.top())
+        << QPointF(inner.right() - triW, inner.bottom());
+  p.drawPolygon(right);
+}
+
+int noteInkSteppedValue(int current, int minVal, int maxVal, const QRect &slot,
+                        const QPoint &pos, int step) {
+  const bool increase = pos.x() >= slot.center().x();
+  return qBound(minVal, current + (increase ? step : -step), maxVal);
+}
+
 void drawNoteInkSlider(QPainter &p, const QRect &slot, int value, int minVal,
                        int maxVal, int trackLeft, int trackRight) {
   double range = qMax(1, maxVal - minVal);
@@ -1552,14 +1584,20 @@ void ColumnArea::DrawHeader::drawThumbnail(QPixmap &iconPixmap) const {
     p.setClipRect(thumbnailImageRect);
     p.setRenderHint(QPainter::Antialiasing, false);
 
-    int trackL = hit.sliderTrack.left();
-    int trackR = hit.sliderTrack.right();
-    drawNoteInkSlider(p, hit.sizeSlider, m_viewer->noteInkSize(col), 1, 20,
-                      trackL, trackR);
-    drawNoteInkSlider(p, hit.fadeSlider, m_viewer->noteGridFade(col), 0, 100,
-                      trackL, trackR);
-    drawNoteInkSlider(p, hit.markSlider, m_viewer->noteMarkStep(col), 0, 24,
-                      trackL, trackR);
+    if (o->isVerticalTimeline()) {
+      int trackL = hit.sliderTrack.left();
+      int trackR = hit.sliderTrack.right();
+      drawNoteInkSlider(p, hit.sizeSlider, m_viewer->noteInkSize(col), 1, 20,
+                        trackL, trackR);
+      drawNoteInkSlider(p, hit.fadeSlider, m_viewer->noteGridFade(col), 0, 100,
+                        trackL, trackR);
+      drawNoteInkSlider(p, hit.markSlider, m_viewer->noteMarkStep(col), 0, 24,
+                        trackL, trackR);
+    } else {
+      drawNoteInkGapStepButtons(p, hit.sizeSlider);
+      drawNoteInkGapStepButtons(p, hit.fadeSlider);
+      drawNoteInkGapStepButtons(p, hit.markSlider);
+    }
     if (!o->flag(PredefinedFlag::PEGBAR_NAME_VISIBLE))
       drawNoteInkPegbarRow(p, m_viewer, col, hit);
     p.restore();
@@ -1819,6 +1857,10 @@ ColumnArea::ColumnArea(XsheetViewer *parent, Qt::WindowFlags flags)
     , m_col(-1)
     , m_noteSliderDragCol(-1)
     , m_noteSliderKind(0)
+    , m_noteStepHoldTimer(0)
+    , m_noteStepHoldCol(-1)
+    , m_noteStepHoldKind(0)
+    , m_noteStepHoldIncrease(false)
     , m_noteColorField(0)
     , m_noteColorCol(-1)
     , m_noteColorPencil(0)
@@ -1856,6 +1898,10 @@ ColumnArea::ColumnArea(XsheetViewer *parent, Qt::WindowFlags flags)
   m_noteColorField->show();
   connect(m_noteColorField, SIGNAL(colorChanged(const TPixel32 &, bool)), this,
           SLOT(onNoteInkColorChanged(const TPixel32 &, bool)));
+
+  m_noteStepHoldTimer = new QTimer(this);
+  connect(m_noteStepHoldTimer, SIGNAL(timeout()), this,
+          SLOT(onNoteInkStepHoldTimeout()));
 
   QActionGroup *actionGroup = new QActionGroup(this);
   m_subsampling1            = new QAction(tr("&Subsampling 1"), actionGroup);
@@ -2645,6 +2691,64 @@ void ColumnArea::startTransparencyPopupTimer(QMouseEvent *e) {  // AREA
   m_transparencyPopupTimer->start(300);
 }
 
+void ColumnArea::applyNoteInkTimelineStep(int col, int kind, const QRect &slot,
+                                          bool increase) {
+  const QPoint pos(slot.center().x() + (increase ? 1 : -1), slot.center().y());
+  switch (kind) {
+  case 2:
+    m_viewer->setNoteInkSize(
+        col, noteInkSteppedValue(m_viewer->noteInkSize(col), 1, 20, slot, pos,
+                                 1));
+    break;
+  case 1:
+    m_viewer->setNoteGridFade(
+        col, noteInkSteppedValue(m_viewer->noteGridFade(col), 0, 100, slot,
+                                 pos, 5));
+    m_viewer->updateCells();
+    break;
+  case 3:
+    m_viewer->setNoteMarkStep(
+        col, noteInkSteppedValue(m_viewer->noteMarkStep(col), 0, 24, slot, pos,
+                                 1));
+    m_viewer->updateCells();
+    break;
+  default:
+    break;
+  }
+}
+
+void ColumnArea::stopNoteInkStepHold() {
+  if (m_noteStepHoldTimer) m_noteStepHoldTimer->stop();
+  m_noteStepHoldCol      = -1;
+  m_noteStepHoldKind     = 0;
+  m_noteStepHoldSlot     = QRect();
+  m_noteStepHoldIncrease = false;
+}
+
+void ColumnArea::startNoteInkStepHold(int col, int kind, const QRect &slot,
+                                      bool increase) {
+  stopNoteInkStepHold();
+  m_noteStepHoldCol      = col;
+  m_noteStepHoldKind     = kind;
+  m_noteStepHoldSlot     = slot;
+  m_noteStepHoldIncrease = increase;
+  m_noteStepHoldTimer->setSingleShot(true);
+  m_noteStepHoldTimer->setInterval(400);
+  m_noteStepHoldTimer->start();
+}
+
+void ColumnArea::onNoteInkStepHoldTimeout() {
+  if (m_noteStepHoldCol < 0 || m_noteStepHoldKind == 0) return;
+  applyNoteInkTimelineStep(m_noteStepHoldCol, m_noteStepHoldKind,
+                           m_noteStepHoldSlot, m_noteStepHoldIncrease);
+  update();
+  if (m_noteStepHoldTimer->isSingleShot()) {
+    m_noteStepHoldTimer->setSingleShot(false);
+    m_noteStepHoldTimer->setInterval(65);
+    m_noteStepHoldTimer->start();
+  }
+}
+
 //----------------------------------------------------------------
 
 void ColumnArea::mousePressEvent(QMouseEvent *event) {
@@ -2763,35 +2867,55 @@ void ColumnArea::mousePressEvent(QMouseEvent *event) {
                 o->rect(PredefinedRect::THUMBNAIL).contains(mouseInCell) ||
                 o->rect(PredefinedRect::PEGBAR_NAME).contains(mouseInCell) ||
                 o->rect(PredefinedRect::CONFIG_AREA).contains(mouseInCell))) {
-        if (event->button() != Qt::LeftButton) return;
         XsheetViewer::NoteInkHeaderHit hit =
             m_viewer->noteInkHeaderHit(m_col);
         QPoint global = event->pos();
+
+        if (event->button() != Qt::LeftButton) return;
         if (hit.sizeSlider.contains(global)) {
-          m_viewer->setNoteInkSize(
-              m_col, qMax(1, noteInkSliderValue(hit.sizeSlider, hit.sliderTrack,
-                                                global, 20, 1)));
-          m_noteSliderDragCol = m_col;
-          m_noteSliderKind    = 2;
+          if (o->isVerticalTimeline()) {
+            m_viewer->setNoteInkSize(
+                m_col,
+                qMax(1, noteInkSliderValue(hit.sizeSlider, hit.sliderTrack,
+                                           global, 20, 1)));
+            m_noteSliderDragCol = m_col;
+            m_noteSliderKind    = 2;
+          } else {
+            const bool increase = global.x() >= hit.sizeSlider.center().x();
+            applyNoteInkTimelineStep(m_col, 2, hit.sizeSlider, increase);
+            startNoteInkStepHold(m_col, 2, hit.sizeSlider, increase);
+          }
           update();
           return;
         }
         if (hit.fadeSlider.contains(global)) {
-          m_viewer->setNoteGridFade(
-              m_col, noteInkSliderValue(hit.fadeSlider, hit.sliderTrack, global,
-                                        100));
-          m_noteSliderDragCol = m_col;
-          m_noteSliderKind    = 1;
+          if (o->isVerticalTimeline()) {
+            m_viewer->setNoteGridFade(
+                m_col, noteInkSliderValue(hit.fadeSlider, hit.sliderTrack,
+                                          global, 100));
+            m_noteSliderDragCol = m_col;
+            m_noteSliderKind    = 1;
+          } else {
+            const bool increase = global.x() >= hit.fadeSlider.center().x();
+            applyNoteInkTimelineStep(m_col, 1, hit.fadeSlider, increase);
+            startNoteInkStepHold(m_col, 1, hit.fadeSlider, increase);
+          }
           update();
           m_viewer->updateCells();
           return;
         }
         if (hit.markSlider.contains(global)) {
-          m_viewer->setNoteMarkStep(
-              m_col, noteInkSliderValue(hit.markSlider, hit.sliderTrack, global,
-                                        24));
-          m_noteSliderDragCol = m_col;
-          m_noteSliderKind    = 3;
+          if (o->isVerticalTimeline()) {
+            m_viewer->setNoteMarkStep(
+                m_col, noteInkSliderValue(hit.markSlider, hit.sliderTrack,
+                                          global, 24));
+            m_noteSliderDragCol = m_col;
+            m_noteSliderKind    = 3;
+          } else {
+            const bool increase = global.x() >= hit.markSlider.center().x();
+            applyNoteInkTimelineStep(m_col, 3, hit.markSlider, increase);
+            startNoteInkStepHold(m_col, 3, hit.markSlider, increase);
+          }
           update();
           m_viewer->updateCells();
           return;
@@ -3039,7 +3163,8 @@ void ColumnArea::mouseMoveEvent(QMouseEvent *event) {
   QPoint mouseInCell = pos - m_viewer->positionToXY(CellPosition(0, col));
   int x = mouseInCell.x(), y = mouseInCell.y();
 
-  if (m_noteSliderDragCol >= 0 && (event->buttons() & Qt::LeftButton) != 0) {
+  if (m_noteSliderDragCol >= 0 && o->isVerticalTimeline() &&
+      (event->buttons() & Qt::LeftButton) != 0) {
     XsheetViewer::NoteInkHeaderHit hit =
         m_viewer->noteInkHeaderHit(m_noteSliderDragCol);
     if (m_noteSliderKind == 2)
@@ -3184,7 +3309,7 @@ void ColumnArea::mouseMoveEvent(QMouseEvent *event) {
       bool onPencil = false;
       for (int i = 0; i < NoteInkPencilCount; i++) {
         if (hit.pencil[i].contains(global)) {
-          m_tooltip = tr("Pencil %1 â double-click for Style Editor")
+          m_tooltip = tr("Pencil %1 - double-click for Style Editor")
                           .arg(i + 1);
           onPencil = true;
           break;
@@ -3236,6 +3361,13 @@ bool ColumnArea::event(QEvent *event) {
 //-----------------------------------------------------------------------------
 
 void ColumnArea::mouseReleaseEvent(QMouseEvent *event) {
+  if (m_noteStepHoldCol >= 0) {
+    stopNoteInkStepHold();
+    if (event->button() == Qt::LeftButton) {
+      m_viewer->setQtModifiers(Qt::KeyboardModifiers());
+      return;
+    }
+  }
   if (m_noteSliderDragCol >= 0) {
     m_noteSliderDragCol = -1;
     m_noteSliderKind    = 0;

@@ -2267,7 +2267,6 @@ XsheetViewer::NoteInkHeaderHit XsheetViewer::noteInkHeaderHit(int col) const {
   }
 
   int iconRowH = qMax(8, iconBox.height());
-  int slH      = qMax(3, (slSpan - 2 * sliderGap) / 3);
 
   for (int i = 0; i < nSlot; i++) {
     QRect slot   = noteInkIconSlotRect(i, nSlot, slotGap, iconBox, iconRowH);
@@ -2278,13 +2277,26 @@ XsheetViewer::NoteInkHeaderHit XsheetViewer::noteInkHeaderHit(int col) const {
       hit.cellText = square;
   }
 
-  hit.sliderTrack = QRect(box.left() + NoteInkSliderInset, sliderTop,
-                          box.width() - 2 * NoteInkSliderInset, slSpan);
-  hit.sizeSlider  = QRect(box.left(), sliderTop, box.width(), slH);
-  hit.fadeSlider =
-      QRect(box.left(), sliderTop + slH + sliderGap, box.width(), slH);
-  hit.markSlider =
-      QRect(box.left(), sliderTop + 2 * (slH + sliderGap), box.width(), slH);
+  const bool timelineStepControls = !o->isVerticalTimeline();
+  if (timelineStepControls) {
+    const QRect sliderBox(box.left(), sliderTop, box.width(), slSpan);
+    hit.sizeSlider = noteInkTimelineStepZone(0, nSlot, slotGap, iconBox,
+                                             iconRowH, sliderBox);
+    hit.fadeSlider = noteInkTimelineStepZone(1, nSlot, slotGap, iconBox,
+                                             iconRowH, sliderBox);
+    hit.markSlider = noteInkTimelineStepZone(2, nSlot, slotGap, iconBox,
+                                             iconRowH, sliderBox);
+    hit.sliderTrack = hit.sizeSlider.united(hit.fadeSlider).united(hit.markSlider);
+  } else {
+    int slH = qMax(3, (slSpan - 2 * sliderGap) / 3);
+    hit.sliderTrack = QRect(box.left() + NoteInkSliderInset, sliderTop,
+                            box.width() - 2 * NoteInkSliderInset, slSpan);
+    hit.sizeSlider  = QRect(box.left(), sliderTop, box.width(), slH);
+    hit.fadeSlider =
+        QRect(box.left(), sliderTop + slH + sliderGap, box.width(), slH);
+    hit.markSlider =
+        QRect(box.left(), sliderTop + 2 * (slH + sliderGap), box.width(), slH);
+  }
   return hit;
 }
 
