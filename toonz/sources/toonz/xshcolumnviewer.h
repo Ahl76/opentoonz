@@ -423,6 +423,9 @@ protected slots:
   void startNoteInkStepHold(int col, int kind, const QRect &slot, bool increase);
   void applyNoteInkTimelineStep(int col, int kind, const QRect &slot,
                                 bool increase);
+  void showNoteInkStepValueTip(int col, int kind, const QPoint &globalPos);
+  bool editNoteInkTimelineStepValue(int col, int kind, const QPoint &pos,
+                                    Qt::KeyboardModifiers mods);
 };
 
 //-----------------------------------------------------------------------------

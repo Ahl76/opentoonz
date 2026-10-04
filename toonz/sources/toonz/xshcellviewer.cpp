@@ -3525,7 +3525,8 @@ void CellArea::mousePressEvent(QMouseEvent *event) {
     TXsheet *xsh       = m_viewer->getXsheet();
     TXshColumn *column = xsh->getColumn(col);
 
-    if (col >= 0 && m_viewer->isNoteInkMode(col)) {
+    if (col >= 0 && m_viewer->isNoteInkMode(col) &&
+        !(event->modifiers() & Qt::AltModifier)) {
       TXshSoundTextColumn *inkCol =
           column ? column->getSoundTextColumn() : nullptr;
       TXshCell inkCell = xsh->getCell(row, col);
@@ -3719,7 +3720,6 @@ void CellArea::mouseMoveEvent(QMouseEvent *event) {
   QPoint frameAdj      = m_viewer->getFrameZoomAdjustment();
 
   m_viewer->setQtModifiers(event->modifiers());
-  setCursor(Qt::ArrowCursor);
   QPoint pos        = event->pos();
   QRect visibleRect = visibleRegion().boundingRect();
   if (m_isPanning) {
@@ -3737,6 +3737,15 @@ void CellArea::mouseMoveEvent(QMouseEvent *event) {
   m_pos = pos;
   if (getDragTool()) {
     getDragTool()->onDrag(event);
+    CellPosition inkPos = m_viewer->xyToPosition(pos);
+    int inkCol          = inkPos.layer();
+    TXshColumn *inkColumn = m_viewer->getXsheet()->getColumn(inkCol);
+    if (inkColumn && inkColumn->getSoundTextColumn() &&
+        m_viewer->isNoteInkMode(inkCol) && !inkColumn->isLocked() &&
+        !(event->modifiers() & Qt::AltModifier))
+      setCursor(Qt::CrossCursor);
+    else
+      setCursor(Qt::ArrowCursor);
     return;
   }
 
@@ -3764,9 +3773,9 @@ void CellArea::mouseMoveEvent(QMouseEvent *event) {
     isSoundTextColumn                    = (!soundTextColumn) ? false : true;
   }
 
-  if (isSoundTextColumn && m_viewer->isNoteInkMode(col) && column &&
-      !column->isLocked())
-    setCursor(Qt::CrossCursor);
+  const bool noteInkDrawCursor =
+      isSoundTextColumn && m_viewer->isNoteInkMode(col) && column &&
+      !column->isLocked() && !(event->modifiers() & Qt::AltModifier);
 
   TStageObject *pegbar = xsh->getStageObject(m_viewer->getObjectId(col));
   int k0, k1;
@@ -3815,7 +3824,6 @@ void CellArea::mouseMoveEvent(QMouseEvent *event) {
     // Ex.  12 -> 1B    21 -> 2A   30 -> 3
     if (isSoundTextColumn) {
       if (m_viewer->isNoteInkMode(col)) {
-        setCursor(Qt::CrossCursor);
         if (m_viewer->isNoteInkEraser(col))
           m_tooltip = tr("Erase a handwritten note");
         else
@@ -3845,13 +3853,9 @@ void CellArea::mouseMoveEvent(QMouseEvent *event) {
     m_tooltip = tr("Click and drag to play");
   else if (m_levelExtenderRect.contains(pos))
     m_tooltip = tr("Click and drag to repeat selected cells");
-  else if (isSoundColumn && rectContainsPos(m_soundLevelModifyRects, pos)) {
-    if (o->isVerticalTimeline())
-      setCursor(Qt::SplitVCursor);
-    else
-      setCursor(Qt::SplitHCursor);
+  else if (isSoundColumn && rectContainsPos(m_soundLevelModifyRects, pos))
     m_tooltip = tr("");
-  } else if (isSoundTextColumn && m_viewer->isNoteInkMode(col)) {
+  else if (isSoundTextColumn && m_viewer->isNoteInkMode(col)) {
     if (m_viewer->isNoteInkEraser(col))
       m_tooltip = tr("Erase a handwritten note");
     else if (xsh->getCell(row, col).isEmpty())
@@ -3861,6 +3865,14 @@ void CellArea::mouseMoveEvent(QMouseEvent *event) {
   }
   else
     m_tooltip = tr("");
+
+  if (isSoundColumn && rectContainsPos(m_soundLevelModifyRects, pos)) {
+    setCursor(o->isVerticalTimeline() ? Qt::SplitVCursor : Qt::SplitHCursor);
+  } else if (noteInkDrawCursor) {
+    setCursor(Qt::CrossCursor);
+  } else {
+    setCursor(Qt::ArrowCursor);
+  }
 }
 
 //-----------------------------------------------------------------------------
