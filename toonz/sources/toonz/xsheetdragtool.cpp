@@ -1378,8 +1378,8 @@ class NoteInkStrokeUndo final : public TUndo {
   NoteInkStroke m_stroke;
 
 public:
-  NoteInkStrokeUndo(int row, int col, TXshSoundTextLevel *level,
-                    int frameIndex, const NoteInkStroke &stroke)
+  NoteInkStrokeUndo(int row, int col, TXshSoundTextLevel *level, int frameIndex,
+                    const NoteInkStroke &stroke)
       : m_row(row)
       , m_col(col)
       , m_level(level)
@@ -1461,8 +1461,7 @@ class NoteInkClearUndo final : public TUndo {
 public:
   NoteInkClearUndo(int col, TXshSoundTextLevel *level,
                    const QList<NoteInkStrokeList> &oldInk,
-                   const QList<QString> &oldText,
-                   const QList<QColor> &oldColor)
+                   const QList<QString> &oldText, const QList<QColor> &oldColor)
       : m_col(col)
       , m_level(level)
       , m_oldInk(oldInk)
@@ -1496,7 +1495,7 @@ public:
 
 static double noteInkSegDist2(const QPointF &a, const QPointF &b,
                               const QPointF &p) {
-  QPointF d = b - a;
+  QPointF d   = b - a;
   double len2 = QPointF::dotProduct(d, d);
   if (len2 < 1e-8) {
     QPointF v = p - a;
@@ -1587,14 +1586,13 @@ public:
         for (int r = 0; r <= last; r++) {
           TXshCell c = xsh->getCell(r, m_col);
           if (!c.isEmpty() && c.m_level && c.m_level->getSoundTextLevel()) {
-            cell = c;
+            cell  = c;
             m_row = r;
             break;
           }
         }
       }
-      if (cell.isEmpty() || !cell.m_level ||
-          !cell.m_level->getSoundTextLevel())
+      if (cell.isEmpty() || !cell.m_level || !cell.m_level->getSoundTextLevel())
         return;
     } else if (cell.isEmpty() || !cell.m_level ||
                !cell.m_level->getSoundTextLevel())
@@ -1606,8 +1604,7 @@ public:
     m_level->ensureFrame(m_frameIndex);
     m_blockStart = noteInkBlockStart(xsh, m_row, m_col);
     m_lastPos    = e->pos();
-    QPointF ink =
-        getViewer()->widgetToNoteInk(m_lastPos, m_col, m_blockStart);
+    QPointF ink  = getViewer()->widgetToNoteInk(m_lastPos, m_col, m_blockStart);
     if (m_erase)
       m_erasePts.append(e->pos());
     else {
@@ -1714,10 +1711,9 @@ XsheetGUI::DragTool *XsheetGUI::DragTool::makeNoteInkTool(
 
 void XsheetGUI::DragTool::clearNoteInkColumn(XsheetViewer *viewer, int col) {
   if (!viewer || col < 0) return;
-  TXsheet *xsh       = viewer->getXsheet();
-  TXshColumn *column = xsh->getColumn(col);
-  TXshSoundTextColumn *snd =
-      column ? column->getSoundTextColumn() : nullptr;
+  TXsheet *xsh             = viewer->getXsheet();
+  TXshColumn *column       = xsh->getColumn(col);
+  TXshSoundTextColumn *snd = column ? column->getSoundTextColumn() : nullptr;
   if (!snd || snd->isLocked()) return;
   TXshSoundTextLevel *level = nullptr;
   int last                  = snd->getMaxFrame();

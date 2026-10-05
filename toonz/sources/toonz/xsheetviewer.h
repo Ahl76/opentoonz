@@ -815,13 +815,11 @@ public:
   NoteInkHeaderHit noteInkHeaderHit(int col) const;
   QRect noteColumnClipRect(int col) const;
 
-  QPointF widgetToNoteInk(const QPoint &pos, int col,
-                          int blockStartRow);
-  QPointF widgetFromNoteInk(const QPointF &ink, int col,
-                            int blockStartRow);
+  QPointF widgetToNoteInk(const QPoint &pos, int col, int blockStartRow);
+  QPointF widgetFromNoteInk(const QPointF &ink, int col, int blockStartRow);
   void drawNoteInkStrokes(QPainter &p, int col, int blockStartRow,
                           const NoteInkStrokeList &strokes,
-                          const NoteInkStroke *liveStroke = nullptr,
+                          const NoteInkStroke *liveStroke       = nullptr,
                           const QList<int> *hiddenStrokeIndices = nullptr);
 
   void updateCells() { m_cellArea->update(m_cellArea->visibleRegion()); }

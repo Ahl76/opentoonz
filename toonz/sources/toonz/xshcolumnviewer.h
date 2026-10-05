@@ -420,7 +420,8 @@ protected slots:
   void onNoteInkStepHoldTimeout();
 
   void stopNoteInkStepHold();
-  void startNoteInkStepHold(int col, int kind, const QRect &slot, bool increase);
+  void startNoteInkStepHold(int col, int kind, const QRect &slot,
+                            bool increase);
   void applyNoteInkTimelineStep(int col, int kind, const QRect &slot,
                                 bool increase);
   void showNoteInkStepValueTip(int col, int kind, const QPoint &globalPos);

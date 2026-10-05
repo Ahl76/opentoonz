@@ -2143,7 +2143,7 @@ void XsheetViewer::setNoteGridFade(int col, int fade) {
   if (col < 0) return;
   if (fade < 0) fade = 0;
   if (fade > 100) fade = 100;
-  m_noteGridFade[col] = fade;
+  m_noteGridFade[col]       = fade;
   TXshSoundTextLevel *level = noteInkLevel(col);
   if (level) {
     level->setGridFade(fade);
@@ -2152,10 +2152,9 @@ void XsheetViewer::setNoteGridFade(int col, int fade) {
 }
 
 TXshSoundTextLevel *XsheetViewer::noteInkLevel(int col) const {
-  TXsheet *xsh       = getXsheet();
-  TXshColumn *column = xsh ? xsh->getColumn(col) : nullptr;
-  TXshSoundTextColumn *snd =
-      column ? column->getSoundTextColumn() : nullptr;
+  TXsheet *xsh             = getXsheet();
+  TXshColumn *column       = xsh ? xsh->getColumn(col) : nullptr;
+  TXshSoundTextColumn *snd = column ? column->getSoundTextColumn() : nullptr;
   if (!snd) return nullptr;
   int last = snd->getMaxFrame();
   for (int r = 0; r <= last; r++) {
@@ -2179,7 +2178,7 @@ void XsheetViewer::setNoteInkSize(int col, int size) {
   if (col < 0) return;
   if (size < 1) size = 1;
   if (size > 20) size = 20;
-  m_noteInkSize[col] = size;
+  m_noteInkSize[col]        = size;
   TXshSoundTextLevel *level = noteInkLevel(col);
   if (level) {
     level->setPencilSize(size);
@@ -2204,7 +2203,7 @@ void XsheetViewer::setNoteMarkStep(int col, int step) {
   if (col < 0) return;
   if (step < 0) step = 0;
   if (step > 24) step = 24;
-  m_noteMarkStep[col] = step;
+  m_noteMarkStep[col]       = step;
   TXshSoundTextLevel *level = noteInkLevel(col);
   if (level) {
     level->setMarkStep(step);
@@ -2224,15 +2223,13 @@ XsheetViewer::NoteInkHeaderHit XsheetViewer::noteInkHeaderHit(int col) const {
   NoteInkHeaderHit hit;
   const Orientation *o = orientation();
   QPoint orig          = positionToXY(CellPosition(0, col));
-  hit.toggle =
-      o->rect((col < 0) ? PredefinedRect::CAMERA_CONFIG_AREA
-                        : PredefinedRect::CONFIG_AREA)
-          .translated(orig);
+  hit.toggle           = o->rect((col < 0) ? PredefinedRect::CAMERA_CONFIG_AREA
+                                           : PredefinedRect::CONFIG_AREA)
+                   .translated(orig);
   hit.area = o->rect(PredefinedRect::THUMBNAIL).translated(orig);
   if (!isNoteInkMode(col)) return hit;
 
-  bool unify =
-      Preferences::instance()->isUnifyColumnVisibilityTogglesEnabled();
+  bool unify = Preferences::instance()->isUnifyColumnVisibilityTogglesEnabled();
   if (unify && o->flag(PredefinedFlag::PREVIEW_LAYER_AREA_VISIBLE)) {
     QRect u = o->rect(PredefinedRect::UNIFIEDVIEW_LAYER_AREA).translated(orig);
     int mid = u.left() + u.width() / 2;
@@ -2248,8 +2245,8 @@ XsheetViewer::NoteInkHeaderHit XsheetViewer::noteInkHeaderHit(int col) const {
   QRect box = hit.area.adjusted(2, 2, -2, -2);
   if (box.width() < 8 || box.height() < 8) return hit;
 
-  const int nSlot   = NoteInkPencilCount + 1;
-  const int slotGap = 2;
+  const int nSlot     = NoteInkPencilCount + 1;
+  const int slotGap   = 2;
   const int sliderGap = 2;
 
   QRect iconBox = box;
@@ -2286,9 +2283,10 @@ XsheetViewer::NoteInkHeaderHit XsheetViewer::noteInkHeaderHit(int col) const {
                                              iconRowH, sliderBox);
     hit.markSlider = noteInkTimelineStepZone(2, nSlot, slotGap, iconBox,
                                              iconRowH, sliderBox);
-    hit.sliderTrack = hit.sizeSlider.united(hit.fadeSlider).united(hit.markSlider);
+    hit.sliderTrack =
+        hit.sizeSlider.united(hit.fadeSlider).united(hit.markSlider);
   } else {
-    int slH = qMax(3, (slSpan - 2 * sliderGap) / 3);
+    int slH         = qMax(3, (slSpan - 2 * sliderGap) / 3);
     hit.sliderTrack = QRect(box.left() + NoteInkSliderInset, sliderTop,
                             box.width() - 2 * NoteInkSliderInset, slSpan);
     hit.sizeSlider  = QRect(box.left(), sliderTop, box.width(), slH);
@@ -2301,21 +2299,20 @@ XsheetViewer::NoteInkHeaderHit XsheetViewer::noteInkHeaderHit(int col) const {
 }
 
 QRect XsheetViewer::noteColumnClipRect(int col) const {
-  const Orientation *o = orientation();
-  TXsheet *xsh         = getXsheet();
-  TXshColumn *column   = xsh ? xsh->getColumn(col) : nullptr;
-  TXshSoundTextColumn *snd =
-      column ? column->getSoundTextColumn() : nullptr;
+  const Orientation *o     = orientation();
+  TXsheet *xsh             = getXsheet();
+  TXshColumn *column       = xsh ? xsh->getColumn(col) : nullptr;
+  TXshSoundTextColumn *snd = column ? column->getSoundTextColumn() : nullptr;
   int r0 = 0, r1 = -1;
   if (snd) snd->getRange(r0, r1);
   if (r1 < r0) r1 = snd ? snd->getMaxFrame() : 0;
   if (r1 < 0) r1 = 0;
 
   QPoint frameAdj = getFrameZoomAdjustment();
-  QRect a =
-      o->rect(PredefinedRect::CELL).translated(positionToXY(CellPosition(r0, col)));
-  QRect b =
-      o->rect(PredefinedRect::CELL).translated(positionToXY(CellPosition(r1, col)));
+  QRect a         = o->rect(PredefinedRect::CELL)
+                .translated(positionToXY(CellPosition(r0, col)));
+  QRect b = o->rect(PredefinedRect::CELL)
+                .translated(positionToXY(CellPosition(r1, col)));
   a.adjust(0, 0, -frameAdj.x(), -frameAdj.y());
   b.adjust(0, 0, -frameAdj.x(), -frameAdj.y());
   QRect clip = a.united(b);
@@ -2332,7 +2329,7 @@ QPointF XsheetViewer::widgetToNoteInk(const QPoint &pos, int col,
   QPoint origin        = positionToXY(CellPosition(blockStartRow, col));
   QPoint next          = positionToXY(CellPosition(blockStartRow + 1, col));
   QPoint frameAdj      = getFrameZoomAdjustment();
-  QRect cellRect = o->rect(PredefinedRect::CELL).translated(origin);
+  QRect cellRect       = o->rect(PredefinedRect::CELL).translated(origin);
   cellRect.adjust(0, 0, -frameAdj.x(), -frameAdj.y());
   if (cellRect.width() < 1) cellRect.setWidth(1);
   if (cellRect.height() < 1) cellRect.setHeight(1);
@@ -2360,7 +2357,7 @@ QPointF XsheetViewer::widgetFromNoteInk(const QPointF &ink, int col,
   QPoint origin        = positionToXY(CellPosition(blockStartRow, col));
   QPoint next          = positionToXY(CellPosition(blockStartRow + 1, col));
   QPoint frameAdj      = getFrameZoomAdjustment();
-  QRect cellRect = o->rect(PredefinedRect::CELL).translated(origin);
+  QRect cellRect       = o->rect(PredefinedRect::CELL).translated(origin);
   cellRect.adjust(0, 0, -frameAdj.x(), -frameAdj.y());
   if (cellRect.width() < 1) cellRect.setWidth(1);
   if (cellRect.height() < 1) cellRect.setHeight(1);

@@ -39,12 +39,12 @@ TXshSoundTextLevel *TXshSoundTextLevel::clone() const {
   sound->m_framesInk       = m_framesInk;
   for (int i = 0; i < NoteInkPencilCount; i++)
     sound->m_pencilColors[i] = m_pencilColors[i];
-  sound->m_pencilSize    = m_pencilSize;
-  sound->m_gridFade      = m_gridFade;
-  sound->m_markStep      = m_markStep;
-  sound->m_inkMode       = m_inkMode;
-  sound->m_cellTextMode  = m_cellTextMode;
-  sound->m_notebookMode  = m_notebookMode;
+  sound->m_pencilSize   = m_pencilSize;
+  sound->m_gridFade     = m_gridFade;
+  sound->m_markStep     = m_markStep;
+  sound->m_inkMode      = m_inkMode;
+  sound->m_cellTextMode = m_cellTextMode;
+  sound->m_notebookMode = m_notebookMode;
   return sound;
 }
 
@@ -97,7 +97,8 @@ void TXshSoundTextLevel::ensureFrame(int frameIndex) {
   while (frameIndex >= m_framesText.size()) m_framesText.append(QString(" "));
   while (frameIndex >= m_framesTextColor.size())
     m_framesTextColor.append(QColor(Qt::black));
-  while (frameIndex >= m_framesInk.size()) m_framesInk.append(NoteInkStrokeList());
+  while (frameIndex >= m_framesInk.size())
+    m_framesInk.append(NoteInkStrokeList());
 }
 
 //-----------------------------------------------------------------------------
@@ -156,8 +157,7 @@ void TXshSoundTextLevel::clearAllInk() { m_framesInk.clear(); }
 //-----------------------------------------------------------------------------
 
 QColor TXshSoundTextLevel::getPencilColor(int index) const {
-  if (index < 0 || index >= NoteInkPencilCount)
-    return defaultNoteInkPencil(0);
+  if (index < 0 || index >= NoteInkPencilCount) return defaultNoteInkPencil(0);
   return m_pencilColors[index];
 }
 
@@ -257,8 +257,7 @@ bool TXshSoundTextLevel::hasFrameText() const {
 
 //-----------------------------------------------------------------------------
 
-const NoteInkStrokeList &TXshSoundTextLevel::getFrameInk(
-    int frameIndex) const {
+const NoteInkStrokeList &TXshSoundTextLevel::getFrameInk(int frameIndex) const {
   static const NoteInkStrokeList empty;
   if (frameIndex < 0 || frameIndex >= m_framesInk.size()) return empty;
   return m_framesInk[frameIndex];

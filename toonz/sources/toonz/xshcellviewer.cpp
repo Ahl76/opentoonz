@@ -781,9 +781,8 @@ void RenameCellField::showInRowCol(int row, int col, bool multiColumnSelected) {
   }
   // clear the field if the empty cell is clicked
   else {
-    TXshColumn *column = xsh->getColumn(col);
-    int dragHandleWidth =
-        o->rect(PredefinedRect::DRAG_HANDLE_CORNER).width();
+    TXshColumn *column  = xsh->getColumn(col);
+    int dragHandleWidth = o->rect(PredefinedRect::DRAG_HANDLE_CORNER).width();
     if (column && column->getSoundTextColumn() &&
         m_viewer->isNoteNotebookMode(m_col) &&
         !m_viewer->isNoteInkMode(m_col)) {
@@ -872,8 +871,9 @@ void RenameCellField::renameSoundTextColumn(TXshSoundTextColumn *sndTextCol,
     TXshSoundTextLevel *textLevel = cell.m_level->getSoundTextLevel();
     QColor oldColor               = QColor(Qt::black);
     if (oldText == "changeMe") {
-      oldText  = textLevel->getFrameText(cell.getFrameId().getNumber() - 1);
-      oldColor = textLevel->getFrameTextColor(cell.getFrameId().getNumber() - 1);
+      oldText = textLevel->getFrameText(cell.getFrameId().getNumber() - 1);
+      oldColor =
+          textLevel->getFrameTextColor(cell.getFrameId().getNumber() - 1);
     }
     QColor newColor = oldColor;
     if (m_viewer->isNoteInkMode(m_col) && !m_viewer->isNoteInkEraser(m_col))
@@ -883,9 +883,8 @@ void RenameCellField::renameSoundTextColumn(TXshSoundTextColumn *sndTextCol,
     bool inkMode      = m_viewer->isNoteInkMode(m_col);
     if (notebookMode && row == m_row) {
       const Orientation *orient = m_viewer->orientation();
-      int dragW =
-          orient->rect(PredefinedRect::DRAG_HANDLE_CORNER).width();
-      int maxW = qMax(8, orient->cellWidth() - dragW - 8);
+      int dragW = orient->rect(PredefinedRect::DRAG_HANDLE_CORNER).width();
+      int maxW  = qMax(8, orient->cellWidth() - dragW - 8);
       QString fontName = Preferences::instance()->getInterfaceFont();
       if (fontName.isEmpty()) fontName = QStringLiteral("Arial");
       QFont noteFont(fontName, -1, QFont::Normal);
@@ -893,13 +892,13 @@ void RenameCellField::renameSoundTextColumn(TXshSoundTextColumn *sndTextCol,
       QStringList lines = wrapNoteTextLines(s, QFontMetrics(noteFont), maxW);
       if (lines.isEmpty()) lines.append(QString());
       for (int li = 0; li < lines.size(); li++) {
-        QString lineText = lines[li];
-        int targetRow    = row + li;
+        QString lineText     = lines[li];
+        int targetRow        = row + li;
         TXshCell lineCell    = xsheet->getCell(targetRow, m_col);
         TXshCell oldLineCell = lineCell;
         int lineTextIndex    = lineCell.getFrameId().getNumber() - 1;
         if (!lineCell.m_level) {
-          oldLineCell = lineCell;
+          oldLineCell   = lineCell;
           int lastFrame = sndTextCol->getMaxFrame();
           TXshSoundTextLevel *sndTextLevel;
           if (lastFrame < 0) {
@@ -921,15 +920,13 @@ void RenameCellField::renameSoundTextColumn(TXshSoundTextColumn *sndTextCol,
             sndTextLevel      = lastCell.m_level->getSoundTextLevel();
             int textSize      = sndTextLevel->m_framesText.size();
             lineTextIndex     = textSize;
-            lineCell =
-                TXshCell(sndTextLevel, TFrameId(textSize + 1));
+            lineCell          = TXshCell(sndTextLevel, TFrameId(textSize + 1));
             sndTextCol->setCell(targetRow, lineCell);
           }
         } else if (cellTextMode || inkMode || notebookMode) {
-          TXshCell prevLine = xsheet->getCell(targetRow - 1, m_col);
-          TXshCell nextLine = xsheet->getCell(targetRow + 1, m_col);
-          TXshSoundTextLevel *lineLevel =
-              lineCell.m_level->getSoundTextLevel();
+          TXshCell prevLine             = xsheet->getCell(targetRow - 1, m_col);
+          TXshCell nextLine             = xsheet->getCell(targetRow + 1, m_col);
+          TXshSoundTextLevel *lineLevel = lineCell.m_level->getSoundTextLevel();
           if ((!prevLine.isEmpty() && prevLine == lineCell) ||
               (!nextLine.isEmpty() && nextLine == lineCell)) {
             int textSize  = lineLevel->m_framesText.size();
@@ -938,12 +935,11 @@ void RenameCellField::renameSoundTextColumn(TXshSoundTextColumn *sndTextCol,
             sndTextCol->setCell(targetRow, lineCell);
           }
         }
-        TXshSoundTextLevel *lineLevel =
-            lineCell.m_level->getSoundTextLevel();
-        QString oldLineText = lineLevel->getFrameText(
-            lineCell.getFrameId().getNumber() - 1);
-        QColor oldLineColor = lineLevel->getFrameTextColor(
-            lineCell.getFrameId().getNumber() - 1);
+        TXshSoundTextLevel *lineLevel = lineCell.m_level->getSoundTextLevel();
+        QString oldLineText =
+            lineLevel->getFrameText(lineCell.getFrameId().getNumber() - 1);
+        QColor oldLineColor =
+            lineLevel->getFrameTextColor(lineCell.getFrameId().getNumber() - 1);
         QColor newLineColor = oldLineColor;
         if (inkMode && !m_viewer->isNoteInkEraser(m_col))
           newLineColor = m_viewer->noteInkColor(m_col);
@@ -954,7 +950,7 @@ void RenameCellField::renameSoundTextColumn(TXshSoundTextColumn *sndTextCol,
         lineLevel->setFrameText(lineCell.getFrameId().getNumber() - 1,
                                 lineText);
         lineLevel->setFrameTextColor(lineCell.getFrameId().getNumber() - 1,
-                                    newLineColor);
+                                     newLineColor);
       }
       continue;
     }
@@ -976,8 +972,8 @@ void RenameCellField::renameSoundTextColumn(TXshSoundTextColumn *sndTextCol,
       // cell text.
       if (prevCellText == s || s.isEmpty()) {
         sndTextCol->setCell(row, prevCell);
-        QColor prevColor = textLevel->getFrameTextColor(
-            prevCell.getFrameId().getNumber() - 1);
+        QColor prevColor =
+            textLevel->getFrameTextColor(prevCell.getFrameId().getNumber() - 1);
         RenameTextCellUndo *undo = new RenameTextCellUndo(
             row, m_col, oldCell, prevCell, oldText, prevCellText, textLevel,
             oldColor, prevColor);
@@ -995,9 +991,8 @@ void RenameCellField::renameSoundTextColumn(TXshSoundTextColumn *sndTextCol,
         sndTextCol->setCell(row, cell);
       }
     }
-    RenameTextCellUndo *undo =
-        new RenameTextCellUndo(row, m_col, oldCell, cell, oldText, s,
-                               textLevel, oldColor, newColor);
+    RenameTextCellUndo *undo = new RenameTextCellUndo(
+        row, m_col, oldCell, cell, oldText, s, textLevel, oldColor, newColor);
     TUndoManager::manager()->add(undo);
     textLevel->setFrameText(textIndex, s);
     textLevel->setFrameTextColor(textIndex, newColor);
@@ -1175,8 +1170,7 @@ void RenameCellField::onReturnPressed() {
   TXsheet *xsheet = m_viewer->getXsheet();
   if (xsheet->getColumn(m_col) &&
       xsheet->getColumn(m_col)->getSoundTextColumn() &&
-      m_viewer->isNoteNotebookMode(m_col) &&
-      !m_viewer->isNoteInkMode(m_col)) {
+      m_viewer->isNoteNotebookMode(m_col) && !m_viewer->isNoteInkMode(m_col)) {
     renameCell();
     TCellSelection *cellSelection = dynamic_cast<TCellSelection *>(
         TApp::instance()->getCurrentSelection()->getSelection());
@@ -1442,7 +1436,7 @@ void CellArea::drawFrameSeparator(QPainter &p, int row, int col,
   TXshColumn *fadeCol = m_viewer->getXsheet()->getColumn(col);
   if (fadeCol && fadeCol->getSoundTextColumn() &&
       m_viewer->isNoteInkMode(col)) {
-    int markStep = m_viewer->noteMarkStep(col);
+    int markStep  = m_viewer->noteMarkStep(col);
     bool noteMark = markStep > 0 && row > 0 && (row % markStep) == 0;
     if (noteMark) {
       color     = m_viewer->getMarkerLineColor();
@@ -2700,12 +2694,13 @@ void CellArea::drawSoundTextColumn(QPainter &p, int r0, int r1, int col) {
     QString text =
         textLevel->getFrameText(block.cell.m_frameId.getNumber() - 1);
     if (text.isEmpty()) return;
-    int textCount = text.count();
-    int row       = block.row;
-    int rowTo     = block.rowTo;
+    int textCount                   = text.count();
+    int row                         = block.row;
+    int rowTo                       = block.rowTo;
     const QList<CellInfo> &infoList = block.infoList;
 
-    p.setPen(textLevel->getFrameTextColor(block.cell.m_frameId.getNumber() - 1));
+    p.setPen(
+        textLevel->getFrameTextColor(block.cell.m_frameId.getNumber() - 1));
     if (m_viewer->isNoteNotebookMode(col) && !inkMode) {
       p.setFont(font);
       for (auto info : infoList) {
@@ -2879,8 +2874,7 @@ void CellArea::drawSoundTextColumn(QPainter &p, int r0, int r1, int col) {
       if (!inkLevel) continue;
       const NoteInkStrokeList &ink =
           inkLevel->getFrameInk(block.cell.m_frameId.getNumber() - 1);
-      if (!ink.isEmpty())
-        m_viewer->drawNoteInkStrokes(p, col, block.row, ink);
+      if (!ink.isEmpty()) m_viewer->drawNoteInkStrokes(p, col, block.row, ink);
     }
   }
 
@@ -3737,8 +3731,8 @@ void CellArea::mouseMoveEvent(QMouseEvent *event) {
   m_pos = pos;
   if (getDragTool()) {
     getDragTool()->onDrag(event);
-    CellPosition inkPos = m_viewer->xyToPosition(pos);
-    int inkCol          = inkPos.layer();
+    CellPosition inkPos   = m_viewer->xyToPosition(pos);
+    int inkCol            = inkPos.layer();
     TXshColumn *inkColumn = m_viewer->getXsheet()->getColumn(inkCol);
     if (inkColumn && inkColumn->getSoundTextColumn() &&
         m_viewer->isNoteInkMode(inkCol) && !inkColumn->isLocked() &&
@@ -3831,8 +3825,7 @@ void CellArea::mouseMoveEvent(QMouseEvent *event) {
       } else
         m_tooltip = cell.getSoundTextLevel()->getFrameText(
             cell.m_frameId.getNumber() - 1);
-    }
-    else if (Preferences::instance()->isShowFrameNumberWithLettersEnabled()) {
+    } else if (Preferences::instance()->isShowFrameNumberWithLettersEnabled()) {
       m_tooltip =
           (fid.isEmptyFrame() || fid.isNoFrame())
               ? QString::fromStdWString(levelName)
@@ -3862,8 +3855,7 @@ void CellArea::mouseMoveEvent(QMouseEvent *event) {
       m_tooltip = tr("Add a cell before drawing");
     else
       m_tooltip = tr("Draw a handwritten note");
-  }
-  else
+  } else
     m_tooltip = tr("");
 
   if (isSoundColumn && rectContainsPos(m_soundLevelModifyRects, pos)) {

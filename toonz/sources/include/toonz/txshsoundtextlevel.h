@@ -83,7 +83,8 @@ public:
   void setNotebookMode(bool on);
   QList<QString> getAllFrameText() const;
   QList<QColor> getAllFrameTextColor() const;
-  void setAllFrameText(const QList<QString> &texts, const QList<QColor> &colors);
+  void setAllFrameText(const QList<QString> &texts,
+                       const QList<QColor> &colors);
   void clearAllFrameText();
   bool hasFrameText() const;
 

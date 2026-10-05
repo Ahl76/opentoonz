@@ -36,7 +36,8 @@ inline QRect noteInkSlotChipSquare(const QRect &slot) {
                inner.y() + (inner.height() - s) / 2, s, s);
 }
 
-// Timeline step control aligned under the gap between two icon slots (wide zone).
+// Timeline step control aligned under the gap between two icon slots (wide
+// zone).
 inline QRect noteInkTimelineStepZone(int gapIndex, int nSlots, int slotGap,
                                      const QRect &iconBox, int iconRowH,
                                      const QRect &sliderBox) {
@@ -45,8 +46,7 @@ inline QRect noteInkTimelineStepZone(int gapIndex, int nSlots, int slotGap,
 
   int zoneW = qMax(8, sliderBox.width() / nZones);
   int x     = sliderBox.left() + gapIndex * zoneW;
-  if (gapIndex == nZones - 1)
-    zoneW = sliderBox.right() - x + 1;
+  if (gapIndex == nZones - 1) zoneW = sliderBox.right() - x + 1;
 
   QRect zone(x, sliderBox.top(), zoneW, sliderBox.height());
 
@@ -56,15 +56,15 @@ inline QRect noteInkTimelineStepZone(int gapIndex, int nSlots, int slotGap,
       noteInkIconSlotRect(gapIndex + 1, nSlots, slotGap, iconBox, iconRowH);
   const int dx  = sliderBox.left() - iconBox.left();
   int gapCenter = (slot0.center().x() + slot1.center().x()) / 2 + dx;
-  gapCenter     = qBound(sliderBox.left() + zoneW / 2,
-                         gapCenter, sliderBox.right() - zoneW / 2);
+  gapCenter     = qBound(sliderBox.left() + zoneW / 2, gapCenter,
+                         sliderBox.right() - zoneW / 2);
   zone.moveLeft(gapCenter - zoneW / 2);
   return zone.intersected(sliderBox);
 }
 
 struct NoteInkStroke {
   QVector<QPointF> points;
-  QColor color  = QColor(40, 40, 40);
+  QColor color = QColor(40, 40, 40);
   double width = 1.6;
 };
 
